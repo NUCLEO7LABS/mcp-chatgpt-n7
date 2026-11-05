@@ -795,21 +795,19 @@ function limitar<A>(nome: string, corpo: (args: A, extra: Extra) => Promise<Resu
 // O Claude recebe isto ao conectar: é o fluxo de trabalho para peças de design.
 const INSTRUCOES = `Este servidor liga você ao ChatGPT/GPT do usuário (pela assinatura dele) e dá ferramentas de design.
 
-Para posts, stories, banners, anúncios, capas, thumbnails e qualquer peça com texto, marca ou logo, você é o diretor de arte e decide o que cada ferramenta faz:
+Para posts, stories, banners, anúncios, capas, thumbnails e qualquer peça com texto, marca ou logo, você é o diretor de arte e decide o que cada ferramenta faz. O caminho principal é montar a peça no Claude Design, onde o usuário edita textos, cores e posições clicando:
 
 1. Marca: se a peça é de uma marca, chame kit_de_marca primeiro (logo real, cores, fontes, tom, referências). Se a marca não tem kit, crie com salvar_marca a partir do que o usuário disse e mostrou, e peça para ele salvar o logo, as fontes e as referências nas pastas indicadas (imagens coladas no chat comum não chegam como arquivo; na aba Code chegam com caminho e podem ser usadas direto).
 2. Decida o que precisa do GPT (gerar_imagem): fotos, cenas, comida, pessoas, produtos em ambiente, objetos e ícones 3D, texturas, ilustrações. Peça essas imagens SEM texto e SEM logo, no formato da peça, deixando espaço livre onde o texto vai entrar. Elementos que vão ser posicionados sobre o layout (produto, objeto, personagem, ícone 3D) peça com fundo_transparente: true. Se já existe uma referência do estilo, passe-a em imagens_referencia com modo_referencia "parecida".
 3. Recorte: foto ou imagem do usuário que precisa ficar sobre outro fundo → remover_fundo. Logo com fundo → remover_fundo antes de usar.
-4. Monte a peça você mesmo com renderizar_arte: HTML/CSS no tamanho exato, texto exato com a hierarquia e as fontes da marca, cores da marca, o logo REAL como <img src="caminho">, e as imagens do GPT como <img> ou background. Siga a composição das referências da marca (posição do logo, estilo do título, botões, selos). Nunca peça ao GPT para escrever o texto final nem para desenhar o logo quando existe o arquivo do logo.
-5. Olhe a prévia com olho crítico (legibilidade, contraste, alinhamento, margens de segurança, hierarquia, se parece com as referências). Corrija o HTML e renderize de novo, o que é rápido e não gasta o ChatGPT. Só gere outra imagem no GPT se o problema estiver na própria imagem.
+4. Monte a peça no Claude Design: crie uma tela (artefato do tipo Design) com o nome da peça ou da campanha, ou use a tela que já existe para ela, e siga as instruções do próprio tipo Design. Envie para a tela, como arquivos dela, as imagens do GPT, o logo REAL da marca e as fontes da marca (os caminhos vêm de gerar_imagem, remover_fundo e kit_de_marca). Faça uma prancheta por formato, no tamanho exato (post do Instagram 1080×1350, story 1080×1920, quadrado 1080×1080, paisagem 1920×1080), com o texto exato como texto de verdade, a hierarquia e as fontes da marca, as cores da marca e a composição das referências (posição do logo, estilo do título, botões, selos). No story, deixe livres os ~250 px de cima e de baixo, que o Instagram cobre. Nunca peça ao GPT para escrever o texto final nem para desenhar o logo quando existe o arquivo do logo.
+5. Entregue o link da tela e diga ao usuário que ele pode clicar nos textos para editar e exportar as artes pela própria tela. Só gere outra imagem no GPT se o problema estiver na própria imagem.
 
-Use gerar_imagem sozinho, sem renderizar_arte, quando a peça é a própria imagem (uma foto, uma ilustração, um ícone, um mockup) ou quando o usuário pedir explicitamente uma arte feita inteira pelo GPT.
+Use renderizar_arte (HTML → PNG no computador) em vez do Claude Design quando: o tipo de artefato Design não estiver disponível nesta conversa; não der para enviar as imagens para a tela (por exemplo, a pasta não está liberada no chat comum); ou o usuário pedir os PNGs salvos no computador, um lote rápido de várias artes, ou a arte sem passar pelo Design. Diga ao usuário em uma frase por que usou esse caminho. Nele: um único HTML no tamanho exato, logo real como <img src="caminho">, olhe a prévia com olho crítico e corrija o HTML (é rápido e não gasta o ChatGPT); para vários formatos, um HTML que se adapta e formatos numa só chamada, ajustando cada um com [data-formato="..."]. No fim, chame entregar_artes com as versões FINAIS e diga onde estão os arquivos e o editável (…-editavel.html). Se refez uma arte, sobrescreva com o mesmo nome_arquivo em vez de criar "-2", "-3". Se o usuário quiser, depois de aprovar no Design, também os PNGs no computador, monte com renderizar_arte a partir do mesmo layout.
+
+Use gerar_imagem sozinho, sem Design nem renderizar_arte, quando a peça é a própria imagem (uma foto, uma ilustração, um ícone, um mockup) ou quando o usuário pedir explicitamente uma arte feita inteira pelo GPT.
 Se uma ferramenta responder "Ainda trabalhando" com um id, chame aguardar_resultado com esse id; não repita a ferramenta.
-No fim, chame entregar_artes com as versões FINAIS (não as que você corrigiu depois), para o usuário recebê-las na conversa em tamanho real, e diga onde estão os arquivos e o editável (…-editavel.html), que ele abre no navegador para trocar textos e baixar o PNG de novo. Se você refez uma arte, sobrescreva com o mesmo nome_arquivo em vez de criar "-2", "-3", para não deixar versões velhas na pasta.
-Se o usuário quer a mesma peça em mais de um formato (post e story, por exemplo), monte um único HTML que se adapta e chame renderizar_arte uma vez com formatos; ajuste o layout de cada formato com [data-formato="..."].
 Se algo der errado de um jeito que não se explica (login, Codex, imagem que não aparece, ferramenta que não abre), chame diagnostico e siga o que ele indicar.
-
-Claude Design: se você tiver o tipo de artefato Design (tela de design editável) e o usuário quiser editar a peça lá, monte a peça também como prancheta Design: envie a foto do GPT e o logo como assets da tela, e escreva os textos como texto de verdade na prancheta, para ele editar clicando.
 
 Pastas: as artes ficam em ${PASTA_IMAGENS} e os kits de marca em ${PASTA_MARCAS}. Use as ferramentas deste servidor para ler e gravar nelas; não tente copiar ou salvar arquivos nessas pastas com outras ferramentas. No chat comum (modo Cowork), se uma ação for negada por acesso a pasta ("Cowork Folder Access"), não insista nem procure outro caminho: peça ao usuário para liberar a pasta Imagens nessa conversa, pelo botão "+" ao lado da caixa de mensagem → "Adicionar pasta" → escolher a pasta Imagens.`;
 
@@ -899,7 +897,7 @@ server.registerTool(
       "Gera ou edita imagens com o gerador de imagens do ChatGPT/GPT (usando a conta do usuário): fotos, cenas, " +
       "comida, pessoas, produtos, mascotes, ícones e objetos 3D, renders, mockups, texturas, ilustrações. Para peças " +
       "com texto, logo ou marca (posts, stories, anúncios), use para gerar só os elementos visuais, sem texto e sem " +
-      "logo, e monte a peça com renderizar_arte. Também refaz ou adapta uma arte a partir de uma referência. " +
+      "logo, e monte a peça no Claude Design (ou com renderizar_arte, quando o Design não estiver disponível). Também refaz ou adapta uma arte a partir de uma referência. " +
       "Imagens que o usuário colou no chat costumam aparecer com um caminho de arquivo (source): passe esse caminho " +
       "em imagens_referencia e escolha modo_referencia conforme o pedido ('quero igual' → igual; 'parecida / no " +
       "mesmo estilo' → parecida; 'muda só X nesta imagem' → editar). Se o usuário pedir 'sem fundo', 'fundo " +
@@ -1252,7 +1250,9 @@ server.registerTool(
     title: "Montar arte (HTML → PNG)",
     description:
       "Transforma um layout em HTML/CSS numa imagem PNG no tamanho exato, salva no computador e devolve a prévia. " +
-      "É assim que você (Claude) monta posts, stories, banners e anúncios com controle total: texto exato, fontes e " +
+      "Caminho alternativo ao Claude Design (que é o principal): use quando o tipo Design não estiver disponível, " +
+      "quando não der para enviar as imagens para a tela, ou quando o usuário pedir os PNGs no computador. Monta " +
+      "posts, stories, banners e anúncios com controle total: texto exato, fontes e " +
       "cores da marca, logo real (<img src=\"C:\\...\\logo.png\">) e imagens geradas pelo GPT como <img> ou " +
       "background. Caminhos do Windows em src/href/url() funcionam direto. Google Fonts via <link> funcionam. " +
       "Rápido (poucos segundos) e não gasta o limite do ChatGPT: ajuste o HTML e renderize de novo quantas vezes " +
@@ -1328,7 +1328,7 @@ server.registerTool(
   {
     title: "Kit de marca",
     description:
-      "Lê o kit de uma marca salvo no computador: logo real (caminhos para usar no HTML ou mandar ao GPT), cores, " +
+      "Lê o kit de uma marca salvo no computador: logo real (caminhos para enviar ao Claude Design, usar no HTML ou mandar ao GPT), cores, " +
       "fontes (com @font-face pronto), tom de voz e artes de referência (com miniaturas para você ver). Chame antes de " +
       "criar qualquer peça de uma marca. Sem o nome, lista as marcas salvas.",
     inputSchema: {

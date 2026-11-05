@@ -18,20 +18,28 @@ Servidor MCP (pasta e pacote `mcp-chatgpt`) que liga o Claude ao ChatGPT usando 
 
 ## Como o Claude cria uma peça (post, story, anúncio)
 
-O servidor manda ao Claude, ao conectar, um fluxo de diretor de arte. Ele decide sozinho o que usar:
+O servidor manda ao Claude, ao conectar, um fluxo de diretor de arte. O caminho principal é o **Claude Design**:
 
 1. **Marca:** lê o kit (`kit_de_marca`). Se a marca não existe, cria (`salvar_marca`) e pede para você colocar o logo e as referências na pasta.
 2. **GPT só onde precisa:** foto, cena, comida, produto, objeto ou ícone 3D, sempre **sem texto e sem logo**. Objetos que vão por cima do layout vêm sem fundo.
 3. **Recorte** do que precisar ficar sobre outro fundo.
-4. **Montagem pelo Claude** (`renderizar_arte`): layout, texto exato, fontes e cores da marca, logo real colado. Leva 1 a 2 segundos e não gasta o ChatGPT, então o Claude ajusta e remonta até ficar bom.
+4. **Montagem no Claude Design:** o Claude cria uma tela de design, envia para ela as imagens do GPT, o logo real e as fontes da marca, e faz uma prancheta por formato (post 1080×1350, story 1080×1920...) com o texto exato como texto de verdade.
+5. **Entrega:** o link da tela. Você clica nos textos para editar, mexe em cores e posições e exporta pela própria tela.
 
-### Uma peça em vários formatos
+**Quando não usa o Design**, o Claude monta com `renderizar_arte` (HTML → PNG salvo no computador, em 1 a 2 segundos, sem gastar o ChatGPT) e diz por quê. Isso acontece quando:
+- o tipo Design não está disponível na conversa;
+- não dá para enviar as imagens para a tela (no chat comum, a pasta Imagens precisa estar liberada na conversa);
+- você pede os PNGs no computador ou um lote rápido.
 
-Peça *"faz em post e story"* e o Claude monta um HTML só e chama `renderizar_arte` com `formatos: ["post_instagram", "story"]`. Sai `<nome>-post_instagram.png`, `<nome>-story.png` (cada um com o seu editável). O `<html>` de cada formato recebe `data-formato="story"` etc., então o Claude reposiciona os elementos de cada um com regras como `[data-formato="story"] .titulo { ... }`.
+Depois de aprovar no Design, dá para pedir também os PNGs no computador.
 
 Peças que são só uma imagem (uma foto, uma ilustração, um ícone) vão direto para o GPT.
 
-### Editar textos depois
+### Uma peça em vários formatos
+
+No Design, cada formato vira uma prancheta da mesma tela. Pelo `renderizar_arte`, o Claude monta um HTML só e chama a ferramenta com `formatos: ["post_instagram", "story"]`: sai `<nome>-post_instagram.png`, `<nome>-story.png` (cada um com o seu editável). O `<html>` de cada formato recebe `data-formato="story"` etc., então o Claude reposiciona os elementos de cada um com regras como `[data-formato="story"] .titulo { ... }`.
+
+### Editar textos depois (caminho `renderizar_arte`)
 
 Junto com cada arte montada, o `renderizar_arte` salva:
 
@@ -40,8 +48,6 @@ Junto com cada arte montada, o `renderizar_arte` salva:
 | `<nome>.png` | A arte final |
 | `<nome>-editavel.html` | Abra no navegador, clique num texto, edite e aperte **Baixar PNG**. Funciona sozinho: imagens e fontes vão embutidas, até sem internet, e dá para mandar para outra pessoa. |
 | `<nome>.html` | O código da arte, para o Claude ajustar depois |
-
-**Claude Design:** quando você quiser editar a peça numa tela de design (textos, posições, cores), peça ao Claude para montar também no Claude Design. Na aba Code ele envia a foto e o logo para a tela e monta a prancheta com os textos editáveis.
 
 ### Kit de marca
 
