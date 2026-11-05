@@ -1,8 +1,8 @@
-// Gera os instaladores da versão do package.json, na pasta saida\:
-//   Instalar-MCP-ChatGPT.exe       instalador principal (NSIS)
-//   Instalar-MCP-ChatGPT.zip       o .exe dentro de um .zip, para a página de download
-//   Instalar-MCP-ChatGPT.cmd       alternativa em arquivo único, para PCs onde o antivírus barra o .exe
-//   Instalar-MCP-ChatGPT-cmd.zip   o .cmd dentro de um .zip, para a página
+// Gera os instaladores do ClauGPT MCP na versão do package.json, na pasta saida\:
+//   Instalar-ClauGPT-MCP.exe       instalador principal (NSIS)
+//   Instalar-ClauGPT-MCP.zip       o .exe dentro de um .zip, para a página de download
+//   Instalar-ClauGPT-MCP.cmd       alternativa em arquivo único, para PCs onde o antivírus barra o .exe
+//   Instalar-ClauGPT-MCP-cmd.zip   o .cmd dentro de um .zip, para a página
 // Precisa do makensis (NSIS 3) no PATH e de zip (Linux/Mac) ou do tar do Windows 10+.
 // Uso: node empacotar.mjs
 import { execFileSync } from "node:child_process";
@@ -29,14 +29,14 @@ mkdirSync(pacote, { recursive: true });
 for (const item of ARQUIVOS) cpSync(join(raiz, item), join(pacote, item), { recursive: true });
 
 // 1. O .exe
-const exe = join(saida, "Instalar-MCP-ChatGPT.exe");
+const exe = join(saida, "Instalar-ClauGPT-MCP.exe");
 execFileSync(
   "makensis",
-  ["-V2", "-INPUTCHARSET", "UTF8", `-DVERSAO=${versao}`, `-DPACOTE=${pacote}`, `-DSAIDA=${exe}`, join(raiz, "instalador", "mcp-chatgpt.nsi")],
+  ["-V2", "-INPUTCHARSET", "UTF8", `-DVERSAO=${versao}`, `-DPACOTE=${pacote}`, `-DSAIDA=${exe}`, join(raiz, "instalador", "instalador.nsi")],
   { stdio: "inherit" },
 );
 if (!existsSync(exe)) throw new Error("O makensis não gerou o .exe.");
-zipar(join(saida, "Instalar-MCP-ChatGPT.zip"), saida, ["Instalar-MCP-ChatGPT.exe"]);
+zipar(join(saida, "Instalar-ClauGPT-MCP.zip"), saida, ["Instalar-ClauGPT-MCP.exe"]);
 
 // 2. O .cmd: um arquivo que é ao mesmo tempo .bat e PowerShell, com o projeto em base64 no meio.
 const zipProjeto = join(saida, "projeto.zip");
@@ -47,7 +47,7 @@ const cmd = [
   "<# :",
   "@echo off",
   "setlocal",
-  `title Instalador - MCP do ChatGPT ${versao}`,
+  `title Instalador - ClauGPT MCP ${versao}`,
   'set "MCP_INSTALADOR=%~f0"',
   'powershell -NoProfile -ExecutionPolicy Bypass -Command "iex ([IO.File]::ReadAllText($env:MCP_INSTALADOR))"',
   "echo.",
@@ -69,8 +69,8 @@ const cmd = [
   "& (Join-Path $destino 'instalar.ps1')",
   "",
 ].join("\r\n");
-writeFileSync(join(saida, "Instalar-MCP-ChatGPT.cmd"), cmd);
-zipar(join(saida, "Instalar-MCP-ChatGPT-cmd.zip"), saida, ["Instalar-MCP-ChatGPT.cmd"]);
+writeFileSync(join(saida, "Instalar-ClauGPT-MCP.cmd"), cmd);
+zipar(join(saida, "Instalar-ClauGPT-MCP-cmd.zip"), saida, ["Instalar-ClauGPT-MCP.cmd"]);
 
 rmSync(pacote, { recursive: true, force: true });
 console.log(`Versão ${versao} gerada em ${saida}`);

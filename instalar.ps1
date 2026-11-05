@@ -1,4 +1,4 @@
-﻿# Instalador do MCP do ChatGPT para o Claude.
+﻿# Instalador do ClauGPT MCP (o MCP do ChatGPT para o Claude).
 # Faz tudo que falta neste PC: Node.js, Codex CLI, bibliotecas, modelo de recorte,
 # registro no Claude (aba Code e chat comum), login na conta do ChatGPT, teste e reinício do Claude.
 # Pode rodar de novo sem problema: o que já estiver pronto é pulado.
@@ -18,7 +18,7 @@ $semPerguntas = $env:MCP_CHATGPT_SEM_PERGUNTAS -eq '1'
 # que podem mudar numa versão nova; por isso um PC novo recebe esta, e não a última.
 $versaoCodex = '0.166.0'
 $versaoServidor = (Get-Content (Join-Path $projeto 'package.json') -Raw | ConvertFrom-Json).version
-try { $Host.UI.RawUI.WindowTitle = "Instalador - MCP do ChatGPT $versaoServidor" } catch {}
+try { $Host.UI.RawUI.WindowTitle = "Instalador - ClauGPT MCP $versaoServidor" } catch {}
 $total = 8
 
 $log = Join-Path $projeto 'instalacao.log'
@@ -43,9 +43,11 @@ function AtualizarPath {
 function Logado { cmd /c "codex login status >nul 2>&1"; return $LASTEXITCODE -eq 0 }
 
 Write-Host ""
-Write-Host "  ==============================================" -ForegroundColor White
-Write-Host "    MCP do ChatGPT para o Claude - Instalador $versaoServidor" -ForegroundColor White
-Write-Host "  ==============================================" -ForegroundColor White
+# Cores da logo: verde em cima, laranja embaixo.
+Write-Host "  ==============================================" -ForegroundColor Cyan
+Write-Host "    ClauGPT MCP - Instalador $versaoServidor" -ForegroundColor White
+Write-Host "    O ChatGPT dentro do seu Claude" -ForegroundColor Gray
+Write-Host "  ==============================================" -ForegroundColor DarkYellow
 Write-Host "  Pasta: $projeto"
 AtualizarPath
 

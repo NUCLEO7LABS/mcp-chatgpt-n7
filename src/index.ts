@@ -1049,7 +1049,7 @@ server.registerTool(
             rotulo +
               `o ChatGPT respondeu que gerou a imagem, mas ela não apareceu nas pastas do Codex (${await versaoCodex()}). ` +
               `Uma atualização do Codex pode ter mudado onde ele salva as imagens. Rode a ferramenta diagnostico e ` +
-              `diga ao usuário para instalar a versão mais nova do MCP do ChatGPT.`,
+              `diga ao usuário para instalar a versão mais nova do ClauGPT MCP.`,
           );
         } else if (geracoes.length === 0) {
           problemas.push(rotulo + `o ChatGPT não gerou imagem. Resposta dele: ${texto || "(nenhuma)"}`);
@@ -1519,9 +1519,9 @@ server.registerTool(
 server.registerTool(
   "diagnostico",
   {
-    title: "Diagnóstico do MCP do ChatGPT",
+    title: "Diagnóstico do ClauGPT MCP",
     description:
-      "Confere se tudo que este servidor usa está funcionando neste computador: versão, Codex CLI, login na conta do " +
+      "Confere se tudo que o ClauGPT MCP usa está funcionando neste computador: versão, Codex CLI, login na conta do " +
       "ChatGPT, modelo de recorte, navegador para montar artes e pastas. Use quando uma ferramenta falhar sem motivo " +
       "claro, ou quando o usuário perguntar se está tudo certo. Não gasta o limite do ChatGPT.",
     inputSchema: {},
@@ -1530,7 +1530,7 @@ server.registerTool(
     const itens: string[] = [];
     const item = (ok: boolean, texto: string) => itens.push(`${ok ? "OK " : "ERRO"}  ${texto}`);
 
-    item(true, `MCP do ChatGPT ${VERSAO} · Node ${process.version} · ${process.platform}`);
+    item(true, `ClauGPT MCP ${VERSAO} · Node ${process.version} · ${process.platform}`);
     const versao = await rodarCodex(["--version"]);
     item(versao.ok, versao.ok ? `Codex CLI: ${versao.saida.split(/\r?\n/).pop()} (${CODEX_BIN})` : `Codex CLI não roda (${CODEX_BIN}): ${versao.saida.replace(/\s+/g, " ").slice(0, 200)}. Rode o instalador de novo.`);
     if (versao.ok) {

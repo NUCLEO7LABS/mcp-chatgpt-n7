@@ -1,6 +1,8 @@
-# mcp-chatgpt
+# ClauGPT MCP
 
-Servidor MCP que liga o Claude ao ChatGPT usando a **sua conta do ChatGPT** (Plus/Pro/Team), sem chave de API, e dá ao Claude ferramentas de design.
+![ClauGPT MCP](instalador/logo.png)
+
+Servidor MCP (pasta e pacote `mcp-chatgpt`) que liga o Claude ao ChatGPT usando a **sua conta do ChatGPT** (Plus/Pro/Team), sem chave de API, e dá ao Claude ferramentas de design.
 
 | Ferramenta | Para quê |
 |---|---|
@@ -67,14 +69,14 @@ Por baixo ele usa o [Codex CLI](https://github.com/openai/codex), a ferramenta o
 **Página de instalação:** https://claude.ai/artifact/KRWjyrpFuYWf3EyW2vnW1P
 
 1. Abra o link no PC novo, logado na sua conta do Claude, e clique em **Baixar**.
-2. Abra o zip e clique duas vezes em **`Instalar-MCP-ChatGPT.exe`**. Se o Windows avisar, clique em *Mais informações → Executar assim mesmo*.
+2. Abra o zip e clique duas vezes em **`Instalar-ClauGPT-MCP.exe`**. Se o Windows avisar, clique em *Mais informações → Executar assim mesmo*.
 3. Clique em **Instalar**. Abre uma janela preta que faz cada etapa.
 4. Na etapa do login, o site da OpenAI abre sozinho e o código já fica copiado: cole com **Ctrl+V** e clique em Continuar.
 5. No fim, aperte **Enter** na janela preta para reiniciar o Claude e clique em **Concluir**.
 
-O `.exe` instala em `%LOCALAPPDATA%\mcp-chatgpt` (sem pedir administrador; só o Node.js, se faltar, pode pedir), guarda o registro em `instalacao.log` nessa pasta e aparece em *Configurações → Aplicativos* como **MCP do ChatGPT para o Claude**, de onde dá para desinstalar. A desinstalação tira o servidor das configurações do Claude e apaga a pasta; imagens, kits de marca e o login do ChatGPT ficam.
+O `.exe` instala em `%LOCALAPPDATA%\mcp-chatgpt` (sem pedir administrador; só o Node.js, se faltar, pode pedir), guarda o registro em `instalacao.log` nessa pasta e aparece em *Configurações → Aplicativos* como **ClauGPT MCP**, de onde dá para desinstalar. A desinstalação tira o servidor das configurações do Claude e apaga a pasta; imagens, kits de marca e o login do ChatGPT ficam.
 
-Se o antivírus barrar o `.exe`, a página também oferece o `Instalar-MCP-ChatGPT.cmd`, que faz a mesma instalação a partir de um arquivo de texto único.
+Se o antivírus barrar o `.exe`, a página também oferece o `Instalar-ClauGPT-MCP.cmd`, que faz a mesma instalação a partir de um arquivo de texto único.
 
 ### Gerar uma versão nova dos instaladores
 
@@ -84,7 +86,7 @@ Depois de mudar o código, aumente `version` no `package.json` e rode:
 node empacotar.mjs
 ```
 
-Precisa do NSIS 3 (`makensis`) no PATH e de `zip` (no Windows, usa o `tar` que já vem com ele). Gera em `saida\`: o `.exe`, o `.cmd` e um `.zip` de cada um para a página. Depois peça ao Claude para republicar a página no mesmo link. O ícone e a imagem lateral do instalador saem de `instalador\icone.py`.
+Precisa do NSIS 3 (`makensis`) no PATH e de `zip` (no Windows, usa o `tar` que já vem com ele). Gera em `saida\`: o `.exe`, o `.cmd` e um `.zip` de cada um para a página. Depois peça ao Claude para republicar a página no mesmo link. As imagens do instalador (ícone, painel com a logo, cabeçalho) saem de `instalador\logo.png` pelo `instalador\arte.py` (`python3 arte.py`, com Pillow); as telas estão em `instalador\instalador.nsi`.
 
 O instalador faz, pulando o que já estiver pronto:
 
