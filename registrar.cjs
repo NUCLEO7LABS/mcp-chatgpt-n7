@@ -2,6 +2,7 @@
 //  - Claude Code (aba Code): ~/.claude.json
 //  - Claude Desktop (chat comum): claude_desktop_config.json, onde quer que o app o guarde
 // Guarda um backup de cada arquivo antes da primeira alteração. Uso: node registrar.cjs
+// Com --remover, tira o servidor desses arquivos (o desinstalador usa).
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
@@ -10,8 +11,9 @@ const servidor = path.join(__dirname, "dist", "index.js");
 const appdata = process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
 const localappdata = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
 const codex = path.join(appdata, "npm", "codex.cmd");
+const remover = process.argv.includes("--remover");
 
-if (!fs.existsSync(servidor)) {
+if (!remover && !fs.existsSync(servidor)) {
   console.error(`Não achei ${servidor}. Rode "npm run build" antes.`);
   process.exit(1);
 }
@@ -48,6 +50,21 @@ function registrar(arquivo, servidorConfig) {
   return true;
 }
 
+// Tira o servidor do arquivo, se estiver lá. O resto da configuração fica como está.
+function desregistrar(arquivo) {
+  if (!fs.existsSync(arquivo)) return false;
+  try {
+    const j = JSON.parse(fs.readFileSync(arquivo, "utf8") || "{}");
+    if (!j.mcpServers || !j.mcpServers.chatgpt) return false;
+    delete j.mcpServers.chatgpt;
+    fs.writeFileSync(arquivo, JSON.stringify(j, null, 2));
+    return true;
+  } catch {
+    console.error(`  ${arquivo} não é um JSON válido; não mexi nele.`);
+    return false;
+  }
+}
+
 function subpastas(pasta, prefixo) {
   try {
     return fs
@@ -79,9 +96,16 @@ function configsDoDesktop() {
 }
 
 let ok = true;
+const cfgCode = path.join(os.homedir(), ".claude.json");
+
+if (remover) {
+  for (const arquivo of [cfgCode, ...configsDoDesktop()]) {
+    if (desregistrar(arquivo)) console.log(`  Removido de ${arquivo}`);
+  }
+  process.exit(0);
+}
 
 // Claude Code
-const cfgCode = path.join(os.homedir(), ".claude.json");
 if (registrar(cfgCode, { type: "stdio", ...entradaPara(540000) })) console.log(`  Claude Code (aba Code): registrado em ${cfgCode}`);
 else ok = false;
 

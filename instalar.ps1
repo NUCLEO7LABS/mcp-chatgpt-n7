@@ -5,6 +5,7 @@
 #
 # Variáveis opcionais:
 #   MCP_CHATGPT_SEM_PERGUNTAS=1   não pergunta nada (não reinicia o Claude); útil para testes.
+#   MCP_CHATGPT_PAUSAR_NO_ERRO=1  segura a janela aberta num erro (o instalador .exe usa, para a mensagem não sumir).
 
 # 'Continue': npm e codex escrevem avisos normais na saída de erro; cada passo confere o código de saída.
 $ErrorActionPreference = 'Continue'
@@ -13,6 +14,11 @@ $modelo = Join-Path $HOME '.mcp-chatgpt\modelos\birefnet_lite.onnx'
 $urlModelo = 'https://huggingface.co/onnx-community/BiRefNet_lite-ONNX/resolve/main/onnx/model.onnx'
 $urlLogin = 'https://auth.openai.com/codex/device'
 $semPerguntas = $env:MCP_CHATGPT_SEM_PERGUNTAS -eq '1'
+# Versão do Codex testada com este servidor. O servidor lê as imagens geradas de pastas internas do Codex,
+# que podem mudar numa versão nova; por isso um PC novo recebe esta, e não a última.
+$versaoCodex = '0.166.0'
+$versaoServidor = (Get-Content (Join-Path $projeto 'package.json') -Raw | ConvertFrom-Json).version
+try { $Host.UI.RawUI.WindowTitle = "Instalador - MCP do ChatGPT $versaoServidor" } catch {}
 $total = 8
 
 $log = Join-Path $projeto 'instalacao.log'
@@ -27,6 +33,7 @@ function Falha($texto) {
     Write-Host ""
     Write-Host "  O registro completo da instalacao esta em: $log"
     try { Stop-Transcript | Out-Null } catch {}
+    if ($env:MCP_CHATGPT_PAUSAR_NO_ERRO -eq '1') { Read-Host "  Aperte Enter para fechar esta janela" | Out-Null }
     exit 1
 }
 function AtualizarPath {
@@ -37,7 +44,7 @@ function Logado { cmd /c "codex login status >nul 2>&1"; return $LASTEXITCODE -e
 
 Write-Host ""
 Write-Host "  ==============================================" -ForegroundColor White
-Write-Host "    MCP do ChatGPT para o Claude - Instalador" -ForegroundColor White
+Write-Host "    MCP do ChatGPT para o Claude - Instalador $versaoServidor" -ForegroundColor White
 Write-Host "  ==============================================" -ForegroundColor White
 Write-Host "  Pasta: $projeto"
 AtualizarPath
@@ -61,11 +68,14 @@ if (Get-Command node -ErrorAction SilentlyContinue) {
 # 2. Codex CLI (faz o login com a conta do ChatGPT)
 Passo 2 "Codex CLI (ponte com a sua conta do ChatGPT)"
 if (Get-Command codex -ErrorAction SilentlyContinue) {
-    Ok "ja instalado ($(codex --version))"
+    # Um Codex que já está aqui fica como está: ele já funciona neste PC.
+    $instalada = "$(codex --version)" -replace '^.*?(\d+\.\d+\.\d+).*$', '$1'
+    if ($instalada -eq $versaoCodex) { Ok "ja instalado ($instalada)" }
+    else { Ok "ja instalado ($instalada; a versao testada e $versaoCodex)" }
 } else {
-    Write-Host "  Instalando..."
-    npm install -g @openai/codex --no-fund --no-audit --loglevel=error
-    if ($LASTEXITCODE -ne 0) { Falha "Nao consegui instalar o Codex CLI (npm install -g @openai/codex)." }
+    Write-Host "  Instalando a versao $versaoCodex..."
+    npm install -g "@openai/codex@$versaoCodex" --no-fund --no-audit --loglevel=error
+    if ($LASTEXITCODE -ne 0) { Falha "Nao consegui instalar o Codex CLI (npm install -g @openai/codex@$versaoCodex)." }
     AtualizarPath
     Ok "instalado ($(codex --version))"
 }
