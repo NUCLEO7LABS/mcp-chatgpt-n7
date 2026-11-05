@@ -8,7 +8,7 @@ import { extname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import puppeteer, { type Browser } from "puppeteer-core";
 
-function acharNavegador(): string {
+export function acharNavegador(): string {
   const pf = process.env.ProgramFiles ?? "C:\\Program Files";
   const pf86 = process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)";
   const local = process.env.LOCALAPPDATA ?? "";
@@ -61,13 +61,22 @@ function converterCaminhos(html: string): string {
     .replace(/url\(\s*(["']?)([A-Za-z]:[\\/][^"')]*)\1\s*\)/g, (_m, q, caminho) => `url(${q}${paraUrl(caminho)}${q})`);
 }
 
-function documentoCompleto(html: string, largura: number, altura: number): string {
+function documentoCompleto(html: string, largura: number, altura: number, formato?: string): string {
   // Base mínima: a página tem exatamente o tamanho da arte e nada vaza para fora.
+  // Para um mesmo HTML servir a vários formatos, o CSS pode usar [data-formato="story"], as variáveis
+  // --largura/--altura ou @media (orientation/aspect-ratio): a janela tem o tamanho da arte.
   const base =
-    `<style>html,body{margin:0;padding:0;width:${largura}px;height:${altura}px;overflow:hidden}` +
+    `<style>:root{--largura:${largura}px;--altura:${altura}px}` +
+    `html,body{margin:0;padding:0;width:${largura}px;height:${altura}px;overflow:hidden}` +
     `*{box-sizing:border-box}</style>`;
-  if (/<html[\s>]/i.test(html)) return html.replace(/<head[^>]*>/i, (m) => m + base);
-  return `<!doctype html><html><head><meta charset="utf-8">${base}</head><body>${html}</body></html>`;
+  const atributo = formato ? ` data-formato="${formato}"` : "";
+  if (/<html[\s>]/i.test(html)) {
+    const comBase = /<head[^>]*>/i.test(html)
+      ? html.replace(/<head[^>]*>/i, (m) => m + base)
+      : html.replace(/<html[^>]*>/i, (m) => m + `<head>${base}</head>`);
+    return atributo ? comBase.replace(/<html\b/i, `<html${atributo}`) : comBase;
+  }
+  return `<!doctype html><html${atributo}><head><meta charset="utf-8">${base}</head><body>${html}</body></html>`;
 }
 
 // ---------- Arquivo editável ----------
@@ -178,8 +187,14 @@ async function embutirFontesGoogle(html: string): Promise<string> {
   return html;
 }
 
-export async function montarEditavel(html: string, largura: number, altura: number, nome: string): Promise<string> {
-  const doc = documentoCompleto(await embutirFontesGoogle(await embutirArquivos(html)), largura, altura);
+export async function montarEditavel(
+  html: string,
+  largura: number,
+  altura: number,
+  nome: string,
+  formato?: string,
+): Promise<string> {
+  const doc = documentoCompleto(await embutirFontesGoogle(await embutirArquivos(html)), largura, altura, formato);
   const editor = EDITOR.replace("__LARGURA__", String(largura))
     .replace("__ALTURA__", String(altura))
     .replace("__NOME__", JSON.stringify(nome));
@@ -188,11 +203,17 @@ export async function montarEditavel(html: string, largura: number, altura: numb
 
 export type Renderizacao = { png: Buffer; avisos: string[]; segundos: number };
 
-export async function renderizarHtml(html: string, largura: number, altura: number, escala = 1): Promise<Renderizacao> {
+export async function renderizarHtml(
+  html: string,
+  largura: number,
+  altura: number,
+  escala = 1,
+  formato?: string,
+): Promise<Renderizacao> {
   const inicio = Date.now();
   const pasta = await mkdtemp(join(tmpdir(), "mcp-arte-"));
   const arquivo = join(pasta, "arte.html");
-  await writeFile(arquivo, documentoCompleto(converterCaminhos(html), largura, altura), "utf8");
+  await writeFile(arquivo, documentoCompleto(converterCaminhos(html), largura, altura, formato), "utf8");
 
   const avisos: string[] = [];
   const browser = await abrirNavegador();

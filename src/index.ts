@@ -3,9 +3,9 @@
 // Usa o Codex CLI da OpenAI, que faz login com a sua conta do ChatGPT
 // (Plus/Pro/Team) — então não precisa de chave de API.
 
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { access, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { homedir, tmpdir } from "node:os";
 import { dirname, extname, join, resolve } from "node:path";
@@ -13,10 +13,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import sharp from "sharp";
 import { z } from "zod";
-import { recortarComIA, recorteDisponivel } from "./recorte.js";
-import { montarEditavel, renderizarHtml } from "./arte.js";
+import { MODELO_RECORTE, recortarComIA, recorteDisponivel } from "./recorte.js";
+import { acharNavegador, montarEditavel, renderizarHtml } from "./arte.js";
 import { acharMarca, cssDasFontes, lerKit, listarMarcas, PASTA_MARCAS, salvarMarca } from "./marca.js";
 
+const VERSAO = "1.7.0";
 const CODEX_BIN = process.env.CODEX_BIN ?? "codex";
 const TIMEOUT_MS = Number(process.env.CHATGPT_TIMEOUT_MS ?? 5 * 60 * 1000);
 
@@ -58,6 +59,39 @@ function ambienteComNode(): NodeJS.ProcessEnv {
   return env;
 }
 
+// Codex rodando agora, para encerrar junto com o servidor.
+const filhos = new Set<ChildProcess>();
+
+// No Windows o Codex roda dentro de um cmd.exe (shell: true): kill() fecharia só o cmd, e o Codex
+// seguiria rodando escondido, gastando o limite do ChatGPT. O taskkill /T leva a árvore inteira.
+function encerrar(filho: ChildProcess) {
+  if (filho.exitCode !== null || filho.signalCode !== null) return;
+  if (process.platform === "win32" && filho.pid) {
+    try {
+      spawnSync("taskkill", ["/pid", String(filho.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+      return;
+    } catch {
+      // sem taskkill: tenta o kill comum
+    }
+  }
+  filho.kill();
+}
+
+// Quando o Claude fecha o servidor, nada do que ele começou deve continuar rodando.
+function encerrarTodos() {
+  for (const filho of filhos) encerrar(filho);
+}
+process.stdin.on("close", () => {
+  encerrarTodos();
+  process.exit(0);
+});
+for (const sinal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+  process.on(sinal, () => {
+    encerrarTodos();
+    process.exit(0);
+  });
+}
+
 // Troca as mensagens técnicas do Codex por algo que dê para agir.
 function explicarErro(bruto: string): string {
   const texto = bruto.trim();
@@ -69,6 +103,45 @@ function explicarErro(bruto: string): string {
   }
   // As últimas linhas costumam ter a causa; o começo é ruído de log.
   return texto.length > 1500 ? "…" + texto.slice(-1500) : texto;
+}
+
+// Roda um comando curto do Codex (versão, status do login) e devolve a saída, sem lançar erro.
+function rodarCodex(args: string[], ms = 20_000): Promise<{ ok: boolean; saida: string }> {
+  return new Promise((ok) => {
+    let saida = "";
+    let filho: ChildProcess;
+    try {
+      filho = spawn(argumentoShell(CODEX_BIN), args.map(argumentoShell), {
+        env: ambienteComNode(),
+        shell: process.platform === "win32",
+        windowsHide: true,
+      });
+    } catch (e) {
+      return ok({ ok: false, saida: (e as Error).message });
+    }
+    filhos.add(filho);
+    const timer = setTimeout(() => encerrar(filho), ms);
+    filho.stdout?.on("data", (d) => (saida += d));
+    filho.stderr?.on("data", (d) => (saida += d));
+    filho.on("error", (e) => {
+      clearTimeout(timer);
+      filhos.delete(filho);
+      ok({ ok: false, saida: e.message });
+    });
+    filho.on("close", (codigo) => {
+      clearTimeout(timer);
+      filhos.delete(filho);
+      ok({ ok: codigo === 0, saida: saida.replace(/\x1b\[[0-9;]*m/g, "").trim() });
+    });
+  });
+}
+
+let versaoCodexCache: Promise<string> | undefined;
+function versaoCodex(): Promise<string> {
+  versaoCodexCache ??= rodarCodex(["--version"]).then((r) =>
+    r.ok ? r.saida.split(/\r?\n/).pop() ?? "Codex" : "Codex não encontrado",
+  );
+  return versaoCodexCache;
 }
 
 // Confere cada imagem e devolve o caminho absoluto (o Codex roda numa pasta temporária,
@@ -120,10 +193,11 @@ async function perguntarAoCodex(prompt: string, opcoes: OpcoesCodex = {}): Promi
         shell: process.platform === "win32", // no Windows o codex é um .cmd
         windowsHide: true,
       });
+      filhos.add(filho);
       let stdout = "";
       let stderr = "";
       const timer = setTimeout(() => {
-        filho.kill();
+        encerrar(filho);
         reject(new Error(`O ChatGPT demorou mais de ${TIMEOUT_MS / 1000}s para responder.`));
       }, TIMEOUT_MS);
 
@@ -131,10 +205,12 @@ async function perguntarAoCodex(prompt: string, opcoes: OpcoesCodex = {}): Promi
       filho.stderr.on("data", (d) => (stderr += d));
       filho.on("error", (e) => {
         clearTimeout(timer);
+        filhos.delete(filho);
         reject(new Error(`Não consegui rodar "${CODEX_BIN}". O Codex CLI está instalado? (${e.message})`));
       });
       filho.on("close", (codigo) => {
         clearTimeout(timer);
+        filhos.delete(filho);
         if (codigo === 0) resolve(stdout);
         else reject(new Error(explicarErro(stderr || stdout || `Codex saiu com código ${codigo}.`)));
       });
@@ -591,6 +667,74 @@ type Resultado = { content: any[]; isError?: boolean };
 type Tarefa = { nome: string; inicio: number; promessa: Promise<Resultado>; resultado?: Resultado };
 const tarefas = new Map<string, Tarefa>();
 
+// Cada trabalho que passou do tempo também fica num arquivo. Assim o resultado não se perde se o
+// Claude reabrir o servidor, e outra janela do Claude (que roda o seu próprio servidor) consegue buscá-lo.
+const PASTA_TAREFAS = join(homedir(), ".mcp-chatgpt", "tarefas");
+type TarefaSalva = { nome: string; inicio: number; pid: number; resultado?: Resultado };
+
+const arquivoTarefa = (id: string) => join(PASTA_TAREFAS, `${id.replace(/[^a-z0-9-]/gi, "")}.json`);
+
+async function salvarTarefa(id: string, dados: TarefaSalva) {
+  try {
+    await mkdir(PASTA_TAREFAS, { recursive: true });
+    // Grava num temporário e renomeia: quem lê nunca pega o arquivo pela metade.
+    const temp = `${arquivoTarefa(id)}.${process.pid}.tmp`;
+    await writeFile(temp, JSON.stringify(dados), "utf8");
+    // No Windows o rename falha se outra janela estiver lendo o arquivo naquele instante: tenta de novo.
+    for (let tentativa = 1; ; tentativa++) {
+      try {
+        await rename(temp, arquivoTarefa(id));
+        break;
+      } catch (e) {
+        if (tentativa >= 5) throw e;
+        await new Promise((ok) => setTimeout(ok, 200));
+      }
+    }
+  } catch {
+    // sem disco: o trabalho continua valendo na memória
+  }
+}
+
+async function lerTarefaSalva(id: string): Promise<TarefaSalva | undefined> {
+  try {
+    return JSON.parse(await readFile(arquivoTarefa(id), "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+function processoVivo(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+async function limparTarefasVelhas() {
+  for (const [id, t] of tarefas) if (Date.now() - t.inicio > GUARDA_TAREFAS_MS) tarefas.delete(id);
+  const nomes = await readdir(PASTA_TAREFAS).catch(() => [] as string[]);
+  for (const nome of nomes) {
+    const caminho = join(PASTA_TAREFAS, nome);
+    const info = await stat(caminho).catch(() => undefined);
+    if (info && Date.now() - info.mtimeMs > GUARDA_TAREFAS_MS) await rm(caminho, { force: true }).catch(() => {});
+  }
+}
+
+// Busca no disco um trabalho que este servidor não conhece. Espera até "ms" por ele, enquanto o
+// servidor que o começou estiver vivo.
+async function esperarTarefaSalva(id: string, ms: number): Promise<{ resultado?: Resultado; salva?: TarefaSalva }> {
+  const limite = Date.now() + ms;
+  for (;;) {
+    const salva = await lerTarefaSalva(id);
+    if (!salva || salva.resultado || !processoVivo(salva.pid) || Date.now() >= limite) {
+      return { resultado: salva?.resultado, salva };
+    }
+    await new Promise((ok) => setTimeout(ok, 1000));
+  }
+}
+
 async function esperar(tarefa: Tarefa, ms: number): Promise<Resultado | undefined> {
   if (tarefa.resultado) return tarefa.resultado;
   let timer: NodeJS.Timeout | undefined;
@@ -636,9 +780,12 @@ function limitar<A>(nome: string, corpo: (args: A, extra: Extra) => Promise<Resu
     ativa = false;
     if (pronto) return pronto;
 
-    for (const [id, t] of tarefas) if (Date.now() - t.inicio > GUARDA_TAREFAS_MS) tarefas.delete(id);
+    void limparTarefasVelhas();
     const id = randomUUID().slice(0, 8);
     tarefas.set(id, tarefa);
+    const salva: TarefaSalva = { nome, inicio: tarefa.inicio, pid: process.pid };
+    await salvarTarefa(id, salva);
+    void tarefa.promessa.then((resultado) => salvarTarefa(id, { ...salva, resultado }));
     return aindaTrabalhando(id, tarefa);
   };
 }
@@ -659,12 +806,14 @@ Para posts, stories, banners, anúncios, capas, thumbnails e qualquer peça com 
 Use gerar_imagem sozinho, sem renderizar_arte, quando a peça é a própria imagem (uma foto, uma ilustração, um ícone, um mockup) ou quando o usuário pedir explicitamente uma arte feita inteira pelo GPT.
 Se uma ferramenta responder "Ainda trabalhando" com um id, chame aguardar_resultado com esse id; não repita a ferramenta.
 No fim, chame entregar_artes com as versões FINAIS (não as que você corrigiu depois), para o usuário recebê-las na conversa em tamanho real, e diga onde estão os arquivos e o editável (…-editavel.html), que ele abre no navegador para trocar textos e baixar o PNG de novo. Se você refez uma arte, sobrescreva com o mesmo nome_arquivo em vez de criar "-2", "-3", para não deixar versões velhas na pasta.
+Se o usuário quer a mesma peça em mais de um formato (post e story, por exemplo), monte um único HTML que se adapta e chame renderizar_arte uma vez com formatos; ajuste o layout de cada formato com [data-formato="..."].
+Se algo der errado de um jeito que não se explica (login, Codex, imagem que não aparece, ferramenta que não abre), chame diagnostico e siga o que ele indicar.
 
 Claude Design: se você tiver o tipo de artefato Design (tela de design editável) e o usuário quiser editar a peça lá, monte a peça também como prancheta Design: envie a foto do GPT e o logo como assets da tela, e escreva os textos como texto de verdade na prancheta, para ele editar clicando.
 
 Pastas: as artes ficam em ${PASTA_IMAGENS} e os kits de marca em ${PASTA_MARCAS}. Use as ferramentas deste servidor para ler e gravar nelas; não tente copiar ou salvar arquivos nessas pastas com outras ferramentas. No chat comum (modo Cowork), se uma ação for negada por acesso a pasta ("Cowork Folder Access"), não insista nem procure outro caminho: peça ao usuário para liberar a pasta Imagens nessa conversa, pelo botão "+" ao lado da caixa de mensagem → "Adicionar pasta" → escolher a pasta Imagens.`;
 
-const server = new McpServer({ name: "chatgpt", version: "1.6.0" }, { instructions: INSTRUCOES });
+const server = new McpServer({ name: "chatgpt", version: VERSAO }, { instructions: INSTRUCOES });
 
 server.registerTool(
   "aguardar_resultado",
@@ -683,21 +832,28 @@ server.registerTool(
     const chave = id.trim();
     const tarefa = tarefas.get(chave);
     if (!tarefa) {
+      // Trabalho de outro servidor (outra janela do Claude, ou antes de o Claude reabrir este).
+      const { resultado, salva } = await comProgresso(extra, "Esperando o trabalho", esperarTarefaSalva(chave, ESPERA_MS));
+      if (resultado) {
+        await rm(arquivoTarefa(chave), { force: true }).catch(() => {});
+        return resultado;
+      }
+      if (salva && processoVivo(salva.pid)) {
+        return aindaTrabalhando(chave, { nome: salva.nome, inicio: salva.inicio, promessa: new Promise(() => {}) });
+      }
+      const motivo = salva
+        ? `O trabalho ${chave} (${salva.nome}) foi interrompido: o Claude fechou o servidor antes de ele terminar. ` +
+          `Pode pedir de novo.`
+        : `Não achei o trabalho ${chave}. Ele pode ter sido entregue já ou ter passado de 2 horas.`;
       return {
         isError: true,
-        content: [
-          {
-            type: "text",
-            text:
-              `Não achei o trabalho ${chave}. Ele pode ter sido entregue já, ou o servidor foi reiniciado. ` +
-              `Imagens prontas ficam salvas em ${PASTA_IMAGENS} (as mais recentes primeiro).`,
-          },
-        ],
+        content: [{ type: "text", text: `${motivo} Imagens prontas ficam salvas em ${PASTA_IMAGENS}.` }],
       };
     }
     const pronto = await comProgresso(extra, `Esperando ${tarefa.nome}`, esperar(tarefa, ESPERA_MS));
     if (!pronto) return aindaTrabalhando(chave, tarefa);
     tarefas.delete(chave);
+    await rm(arquivoTarefa(chave), { force: true }).catch(() => {});
     return pronto;
   },
 );
@@ -887,7 +1043,15 @@ server.registerTool(
             imagens.push(await finalizar(g, destino, nome, meta, conversaId, Boolean(args.fundo_transparente)));
           }
         }
-        if (geracoes.length === 0) {
+        if (geracoes.length === 0 && /^\W*ok\W*$/i.test(texto)) {
+          // Ele diz que gerou, mas a imagem não está onde o Codex costuma guardar: sinal de Codex atualizado.
+          problemas.push(
+            rotulo +
+              `o ChatGPT respondeu que gerou a imagem, mas ela não apareceu nas pastas do Codex (${await versaoCodex()}). ` +
+              `Uma atualização do Codex pode ter mudado onde ele salva as imagens. Rode a ferramenta diagnostico e ` +
+              `diga ao usuário para instalar a versão mais nova do MCP do ChatGPT.`,
+          );
+        } else if (geracoes.length === 0) {
           problemas.push(rotulo + `o ChatGPT não gerou imagem. Resposta dele: ${texto || "(nenhuma)"}`);
         }
       }
@@ -1052,6 +1216,36 @@ async function miniatura(caminho: string, lado = 512): Promise<{ type: "image"; 
   }
 }
 
+// Renderiza uma arte e salva ao lado: o PNG, o HTML-fonte (para o Claude ajustar depois) e uma versão
+// editável que o usuário abre no navegador, edita os textos clicando e baixa o PNG, sem precisar do Claude.
+async function salvarArte(
+  html: string,
+  largura: number,
+  altura: number,
+  escala: number,
+  formato: string | undefined,
+  caminho: string,
+): Promise<{ previa: { dados: string; mime: string }; linhas: string[] }> {
+  const r = await renderizarHtml(html, largura, altura, escala, formato);
+  await writeFile(caminho, r.png);
+  const base = caminho.slice(0, -4);
+  await writeFile(base + ".html", html, "utf8");
+  const nomeBase = base.split(/[\\/]/).pop() ?? "arte";
+  await writeFile(base + "-editavel.html", await montarEditavel(html, largura, altura, nomeBase, formato), "utf8");
+  const info = await sharp(r.png).metadata();
+  const previa = await gerarPrevia(r.png, Boolean(info.hasAlpha));
+  const linhas = [
+    `Arquivo: ${caminho}`,
+    `Tamanho: ${info.width}×${info.height}px${formato ? ` (${formato})` : ""} · montada em ${r.segundos.toFixed(1)} s`,
+    `Editável: ${base}-editavel.html (o usuário abre no navegador, clica nos textos para editar e aperta "Baixar PNG"; funciona sozinho, com as imagens embutidas)`,
+    `HTML-fonte: ${base}.html`,
+  ];
+  if (r.avisos.length) linhas.push("Atenção (corrija e renderize de novo):", ...r.avisos.map((a) => `- ${a}`));
+  return { previa, linhas };
+}
+
+const NOMES_FORMATOS_ARTE = Object.keys(FORMATOS_ARTE) as [string, ...string[]];
+
 server.registerTool(
   "renderizar_arte",
   {
@@ -1062,13 +1256,24 @@ server.registerTool(
       "cores da marca, logo real (<img src=\"C:\\...\\logo.png\">) e imagens geradas pelo GPT como <img> ou " +
       "background. Caminhos do Windows em src/href/url() funcionam direto. Google Fonts via <link> funcionam. " +
       "Rápido (poucos segundos) e não gasta o limite do ChatGPT: ajuste o HTML e renderize de novo quantas vezes " +
-      "precisar. Mande só o conteúdo do <body> (com <style>) ou um documento completo; a página já tem o tamanho da arte.",
+      "precisar. Mande só o conteúdo do <body> (com <style>) ou um documento completo; a página já tem o tamanho da arte.\n" +
+      "Vários formatos de uma vez: passe formatos (ex.: [\"post_instagram\", \"story\", \"quadrado\"]) e um único HTML " +
+      "que se adapta. O <html> recebe data-formato=\"story\" etc. e as variáveis CSS --largura/--altura; use regras como " +
+      "[data-formato=\"story\"] .titulo { ... } para reposicionar elementos em cada formato (no story, deixe livres os " +
+      "~250 px de cima e de baixo, que o Instagram cobre). Confira cada prévia: o que funciona no quadrado pode " +
+      "apertar no story.",
     inputSchema: {
       html: z.string().min(1).describe("Layout da arte em HTML/CSS. Use px; a página tem exatamente largura × altura."),
       formato: z
-        .enum(Object.keys(FORMATOS_ARTE) as [string, ...string[]])
+        .enum(NOMES_FORMATOS_ARTE)
         .optional()
         .describe("story 1080×1920, post_instagram 1080×1350, quadrado 1080×1080, paisagem 1920×1080, retrato 1080×1620"),
+      formatos: z
+        .array(z.enum(NOMES_FORMATOS_ARTE))
+        .min(1)
+        .max(5)
+        .optional()
+        .describe("Vários formatos com o mesmo HTML (substitui formato, largura e altura). Salva <nome>-<formato>.png de cada um."),
       largura: z.number().int().min(16).max(8000).optional().describe("Largura em px (substitui o formato)"),
       altura: z.number().int().min(16).max(8000).optional().describe("Altura em px (substitui o formato)"),
       escala: z.number().min(1).max(3).optional().describe("Multiplicador de resolução do PNG (padrão 1; 2 = o dobro de pixels)"),
@@ -1081,38 +1286,37 @@ server.registerTool(
   },
   limitar("renderizar_arte", async (args, extra) => {
     try {
-      const [l0, a0] = FORMATOS_ARTE[args.formato ?? "quadrado"];
-      const largura = args.largura ?? l0;
-      const altura = args.altura ?? a0;
-      const r = await comProgresso(extra, "Montando a arte", renderizarHtml(args.html, largura, altura, args.escala ?? 1));
       const destino = resolve(args.pasta_destino ?? PASTA_IMAGENS);
       await mkdir(destino, { recursive: true });
-      // Com nome_arquivo, refazer a arte substitui o arquivo (sem "-2", "-3" sobrando na pasta).
-      const caminho = args.nome_arquivo
-        ? join(destino, `${slug(args.nome_arquivo)}.png`)
-        : await nomeLivre(destino, slug(`arte-${args.formato ?? `${largura}x${altura}`}`), ".png");
-      await writeFile(caminho, r.png);
-      // Ao lado: o HTML-fonte (para o Claude ajustar depois) e uma versão editável que o usuário abre
-      // no navegador, edita os textos clicando e baixa o PNG, sem precisar do Claude.
-      const base = caminho.slice(0, -4);
-      await writeFile(base + ".html", args.html, "utf8");
-      const nomeBase = base.split(/[\\/]/).pop() ?? "arte";
-      await writeFile(base + "-editavel.html", await montarEditavel(args.html, largura, altura, nomeBase), "utf8");
-      const info = await sharp(r.png).metadata();
-      const previa = await gerarPrevia(r.png, Boolean(info.hasAlpha));
-      const linhas = [
-        `Arquivo: ${caminho}`,
-        `Tamanho: ${info.width}×${info.height}px · montada em ${r.segundos.toFixed(1)} s`,
-        `Editável: ${base}-editavel.html (o usuário abre no navegador, clica nos textos para editar e aperta "Baixar PNG"; funciona sozinho, com as imagens embutidas)`,
-        `HTML-fonte: ${base}.html`,
-      ];
-      if (r.avisos.length) linhas.push("", "Atenção (corrija e renderize de novo):", ...r.avisos.map((a) => `- ${a}`));
-      return {
-        content: [
+      const varios = Boolean(args.formatos);
+      const pedidos: { formato?: string; largura: number; altura: number }[] = args.formatos
+        ? [...new Set(args.formatos)].map((f) => ({ formato: f, largura: FORMATOS_ARTE[f][0], altura: FORMATOS_ARTE[f][1] }))
+        : [
+            {
+              formato: args.formato,
+              largura: args.largura ?? FORMATOS_ARTE[args.formato ?? "quadrado"][0],
+              altura: args.altura ?? FORMATOS_ARTE[args.formato ?? "quadrado"][1],
+            },
+          ];
+
+      const conteudo: Resultado["content"] = [];
+      for (const p of pedidos) {
+        const sufixo = p.formato ?? `${p.largura}x${p.altura}`;
+        // Com nome_arquivo, refazer a arte substitui o arquivo (sem "-2", "-3" sobrando na pasta).
+        const caminho = args.nome_arquivo
+          ? join(destino, `${slug(args.nome_arquivo)}${varios ? `-${sufixo}` : ""}.png`)
+          : await nomeLivre(destino, slug(`arte-${sufixo}`), ".png");
+        const { previa, linhas } = await comProgresso(
+          extra,
+          varios ? `Montando ${p.formato}` : "Montando a arte",
+          salvarArte(args.html, p.largura, p.altura, args.escala ?? 1, p.formato, caminho),
+        );
+        conteudo.push(
           { type: "image" as const, data: previa.dados, mimeType: previa.mime },
           { type: "text" as const, text: linhas.join("\n") },
-        ],
-      };
+        );
+      }
+      return { content: conteudo };
     } catch (e) {
       return { isError: true, content: [{ type: "text", text: (e as Error).message }] };
     }
@@ -1309,6 +1513,56 @@ server.registerTool(
     } catch (e) {
       return { isError: true, content: [{ type: "text", text: (e as Error).message }] };
     }
+  },
+);
+
+server.registerTool(
+  "diagnostico",
+  {
+    title: "Diagnóstico do MCP do ChatGPT",
+    description:
+      "Confere se tudo que este servidor usa está funcionando neste computador: versão, Codex CLI, login na conta do " +
+      "ChatGPT, modelo de recorte, navegador para montar artes e pastas. Use quando uma ferramenta falhar sem motivo " +
+      "claro, ou quando o usuário perguntar se está tudo certo. Não gasta o limite do ChatGPT.",
+    inputSchema: {},
+  },
+  async () => {
+    const itens: string[] = [];
+    const item = (ok: boolean, texto: string) => itens.push(`${ok ? "OK " : "ERRO"}  ${texto}`);
+
+    item(true, `MCP do ChatGPT ${VERSAO} · Node ${process.version} · ${process.platform}`);
+    const versao = await rodarCodex(["--version"]);
+    item(versao.ok, versao.ok ? `Codex CLI: ${versao.saida.split(/\r?\n/).pop()} (${CODEX_BIN})` : `Codex CLI não roda (${CODEX_BIN}): ${versao.saida.replace(/\s+/g, " ").slice(0, 200)}. Rode o instalador de novo.`);
+    if (versao.ok) {
+      const login = await rodarCodex(["login", "status"]);
+      item(login.ok, login.ok ? `Login no ChatGPT: ${login.saida.split(/\r?\n/)[0] || "ativo"}` : "Sem login no ChatGPT. Rode o instalador de novo (ele faz o login) ou, no terminal: codex login --device-auth");
+    }
+    const recorte = await recorteDisponivel();
+    item(recorte, recorte ? `Modelo de recorte: ${MODELO_RECORTE}` : `Modelo de recorte ausente (${MODELO_RECORTE}): o recorte funciona, mas com qualidade inferior. Rode o instalador de novo para baixar.`);
+    try {
+      item(true, `Navegador para montar artes: ${acharNavegador()}`);
+    } catch (e) {
+      item(false, (e as Error).message);
+    }
+    for (const [rotulo, pasta] of [["Pasta das artes", PASTA_IMAGENS], ["Pasta das marcas", PASTA_MARCAS]] as const) {
+      try {
+        await mkdir(pasta, { recursive: true });
+        const teste = join(pasta, `.teste-${process.pid}`);
+        await writeFile(teste, "");
+        await rm(teste, { force: true });
+        item(true, `${rotulo}: ${pasta}`);
+      } catch (e) {
+        item(false, `${rotulo} sem permissão de escrita (${pasta}): ${(e as Error).message}`);
+      }
+    }
+    const geradas = await readdir(join(CODEX_HOME, "generated_images")).catch(() => undefined);
+    itens.push(`      Imagens do Codex: ${join(CODEX_HOME, "generated_images")}${geradas ? ` (${geradas.length} conversas)` : " (ainda vazia)"}`);
+    const andamento = [...tarefas.entries()].filter(([, t]) => !t.resultado);
+    if (andamento.length) itens.push(`      Trabalhos em andamento: ${andamento.map(([id, t]) => `${id} (${t.nome})`).join(", ")}`);
+
+    const erros = itens.filter((i) => i.startsWith("ERRO")).length;
+    itens.push("", erros ? `${erros} problema(s). Explique ao usuário o que fazer em cada um.` : "Tudo certo.");
+    return { content: [{ type: "text", text: itens.join("\n") }] };
   },
 );
 
