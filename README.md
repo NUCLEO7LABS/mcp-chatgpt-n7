@@ -12,6 +12,7 @@ Servidor MCP que liga o Claude ao ChatGPT usando a **sua conta do ChatGPT** (Plu
 | `entregar_artes` | Mostra as artes finais na conversa em tamanho real, com o link do arquivo e do editável |
 | `perguntar_chatgpt` | Segunda opinião do ChatGPT |
 | `aguardar_resultado` | Pega o resultado de um trabalho que passou do tempo do chat |
+| `diagnostico` | Confere Codex, login, modelo de recorte, navegador e pastas, e diz o que fazer |
 
 ## Como o Claude cria uma peça (post, story, anúncio)
 
@@ -21,6 +22,10 @@ O servidor manda ao Claude, ao conectar, um fluxo de diretor de arte. Ele decide
 2. **GPT só onde precisa:** foto, cena, comida, produto, objeto ou ícone 3D, sempre **sem texto e sem logo**. Objetos que vão por cima do layout vêm sem fundo.
 3. **Recorte** do que precisar ficar sobre outro fundo.
 4. **Montagem pelo Claude** (`renderizar_arte`): layout, texto exato, fontes e cores da marca, logo real colado. Leva 1 a 2 segundos e não gasta o ChatGPT, então o Claude ajusta e remonta até ficar bom.
+
+### Uma peça em vários formatos
+
+Peça *"faz em post e story"* e o Claude monta um HTML só e chama `renderizar_arte` com `formatos: ["post_instagram", "story"]`. Sai `<nome>-post_instagram.png`, `<nome>-story.png` (cada um com o seu editável). O `<html>` de cada formato recebe `data-formato="story"` etc., então o Claude reposiciona os elementos de cada um com regras como `[data-formato="story"] .titulo { ... }`.
 
 Peças que são só uma imagem (uma foto, uma ilustração, um ícone) vão direto para o GPT.
 
@@ -53,6 +58,8 @@ No **chat comum**, imagens coladas não chegam ao servidor como arquivo: salve o
 
 **Trabalhos demorados:** o chat comum do Claude Desktop desiste de uma ferramenta depois de 60 s, e uma imagem leva de 30 a 90 s. Por isso, se o trabalho passar de 45 s, a ferramenta responde *"Ainda trabalhando"* com um id e continua no computador; o Claude busca o resultado com `aguardar_resultado`, sem gerar de novo. Na aba Code a espera vai até 9 minutos. O tempo é a variável `CHATGPT_ESPERA_MAX_MS`, que o instalador define para cada um.
 
+Esses trabalhos ficam também em `%USERPROFILE%\.mcp-chatgpt\tarefas` (por 2 horas). Assim outra janela do Claude, ou o Claude depois de reabrir o servidor, ainda busca o resultado. Quando o Claude fecha o servidor, o Codex que estava rodando é encerrado junto (com a árvore de processos inteira), para não ficar gastando o limite do ChatGPT escondido.
+
 Por baixo ele usa o [Codex CLI](https://github.com/openai/codex), a ferramenta oficial da OpenAI que faz login com a conta do ChatGPT. Roda em modo somente leitura: o ChatGPT só responde e gera imagens, não mexe nos seus arquivos.
 
 ## Instalar num PC (um clique)
@@ -60,28 +67,31 @@ Por baixo ele usa o [Codex CLI](https://github.com/openai/codex), a ferramenta o
 **Página de instalação:** https://claude.ai/artifact/KRWjyrpFuYWf3EyW2vnW1P
 
 1. Abra o link no PC novo, logado na sua conta do Claude, e clique em **Baixar**.
-2. Abra o zip e clique duas vezes em **`Instalar-MCP-ChatGPT.cmd`**. Se o Windows avisar, clique em *Mais informações → Executar assim mesmo*.
-3. Na etapa do login, o site da OpenAI abre sozinho e o código já fica copiado: cole com **Ctrl+V** e clique em Continuar.
-4. No fim, aperte **Enter** para reiniciar o Claude.
+2. Abra o zip e clique duas vezes em **`Instalar-MCP-ChatGPT.exe`**. Se o Windows avisar, clique em *Mais informações → Executar assim mesmo*.
+3. Clique em **Instalar**. Abre uma janela preta que faz cada etapa.
+4. Na etapa do login, o site da OpenAI abre sozinho e o código já fica copiado: cole com **Ctrl+V** e clique em Continuar.
+5. No fim, aperte **Enter** na janela preta para reiniciar o Claude e clique em **Concluir**.
 
-O `Instalar-MCP-ChatGPT.cmd` é um arquivo único, com o projeto inteiro embutido. Ele instala em `%LOCALAPPDATA%\mcp-chatgpt` (uma pasta fixa, que não precisa ser movida) e guarda o registro da instalação em `instalacao.log` nessa pasta. Também dá para levar só esse arquivo por pendrive e rodar.
+O `.exe` instala em `%LOCALAPPDATA%\mcp-chatgpt` (sem pedir administrador; só o Node.js, se faltar, pode pedir), guarda o registro em `instalacao.log` nessa pasta e aparece em *Configurações → Aplicativos* como **MCP do ChatGPT para o Claude**, de onde dá para desinstalar. A desinstalação tira o servidor das configurações do Claude e apaga a pasta; imagens, kits de marca e o login do ChatGPT ficam.
 
-### Gerar uma versão nova do instalador e da página
+Se o antivírus barrar o `.exe`, a página também oferece o `Instalar-MCP-ChatGPT.cmd`, que faz a mesma instalação a partir de um arquivo de texto único.
+
+### Gerar uma versão nova dos instaladores
 
 Depois de mudar o código, aumente `version` no `package.json` e rode:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File empacotar.ps1
+```bash
+node empacotar.mjs
 ```
 
-Isso gera `..\Instalar-MCP-ChatGPT.cmd` e `pagina\instalar.html`. Depois peça ao Claude para republicar a página no mesmo link.
+Precisa do NSIS 3 (`makensis`) no PATH e de `zip` (no Windows, usa o `tar` que já vem com ele). Gera em `saida\`: o `.exe`, o `.cmd` e um `.zip` de cada um para a página. Depois peça ao Claude para republicar a página no mesmo link. O ícone e a imagem lateral do instalador saem de `instalador\icone.py`.
 
 O instalador faz, pulando o que já estiver pronto:
 
 | Passo | O quê |
 |---|---|
 | 1 | Instala o Node.js (pelo winget; pode pedir permissão de administrador) |
-| 2 | Instala o Codex CLI |
+| 2 | Instala o Codex CLI na versão testada (`$versaoCodex` no `instalar.ps1`); um Codex que já está no PC fica como está |
 | 3 | Instala as bibliotecas e compila o servidor |
 | 4 | Baixa o modelo de recorte de fundo (214 MB) |
 | 5 | Registra o servidor no Claude daquele PC, na aba Code e no chat comum (`registrar.cjs`, com backup de cada configuração) |
@@ -96,7 +106,7 @@ Pode rodar de novo quando quiser: depois de mover a pasta, para atualizar, ou se
 
 ```powershell
 winget install OpenJS.NodeJS.LTS
-npm install -g @openai/codex
+npm install -g @openai/codex@0.166.0
 codex login --device-auth
 npm install
 npm run build

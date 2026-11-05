@@ -70,8 +70,7 @@ Passo 2 "Codex CLI (ponte com a sua conta do ChatGPT)"
 if (Get-Command codex -ErrorAction SilentlyContinue) {
     # Um Codex que já está aqui fica como está: ele já funciona neste PC.
     $instalada = "$(codex --version)" -replace '^.*?(\d+\.\d+\.\d+).*$', '$1'
-    if ($instalada -eq $versaoCodex) { Ok "ja instalado ($instalada)" }
-    else { Ok "ja instalado ($instalada; a versao testada e $versaoCodex)" }
+    if ($instalada -eq $versaoCodex) { Ok "ja instalado ($instalada)" } else { Ok "ja instalado ($instalada; a versao testada e $versaoCodex)" }
 } else {
     Write-Host "  Instalando a versao $versaoCodex..."
     npm install -g "@openai/codex@$versaoCodex" --no-fund --no-audit --loglevel=error
@@ -219,3 +218,5 @@ Write-Host "  Num chat novo (aba Code ou chat comum), peca por exemplo:"
 Write-Host '    "Gera com o ChatGPT um icone 3D de um foguete, sem fundo"'
 Write-Host ""
 try { Stop-Transcript | Out-Null } catch {}
+# O instalador .exe confere este código para dizer se deu certo.
+exit 0
