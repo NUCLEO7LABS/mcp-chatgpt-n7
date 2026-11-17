@@ -6,6 +6,8 @@
 # Variáveis opcionais:
 #   MCP_CHATGPT_SEM_PERGUNTAS=1   não pergunta nada (não reinicia o Claude); útil para testes.
 #   MCP_CHATGPT_PAUSAR_NO_ERRO=1  segura a janela aberta num erro (o instalador .exe usa, para a mensagem não sumir).
+#   MCP_CHATGPT_INTERFACE=1       roda por trás da janela do instalador (iniciar.ps1): não pergunta nada no
+#                                 terminal e avisa o código de login e o fim com linhas "@@...".
 
 # 'Continue': npm e codex escrevem avisos normais na saída de erro; cada passo confere o código de saída.
 $ErrorActionPreference = 'Continue'
@@ -17,6 +19,7 @@ $urlModelo = 'https://github.com/danielgatis/rembg/releases/download/v0.0.0/isne
 $modeloAntigo = Join-Path $HOME '.mcp-chatgpt\modelos\birefnet_lite.onnx'
 $urlLogin = 'https://auth.openai.com/codex/device'
 $semPerguntas = $env:MCP_CHATGPT_SEM_PERGUNTAS -eq '1'
+$interface = $env:MCP_CHATGPT_INTERFACE -eq '1'
 # Versão do Codex testada com este servidor. O servidor lê as imagens geradas de pastas internas do Codex,
 # que podem mudar numa versão nova; por isso um PC novo recebe esta, e não a última.
 $versaoCodex = '0.166.0'
@@ -27,10 +30,17 @@ $total = 8
 $log = Join-Path $projeto 'instalacao.log'
 try { Start-Transcript -Path $log -Force | Out-Null } catch {}
 
-function Passo($n, $texto) { Write-Host ""; Write-Host "[$n/$total] $texto" -ForegroundColor Cyan }
-function Ok($texto) { Write-Host "  OK  $texto" -ForegroundColor Green }
-function Aviso($texto) { Write-Host "  !   $texto" -ForegroundColor Yellow }
+# Com a janela do instalador: cada etapa vai também para este arquivo, na hora, para a janela acompanhar.
+$eventos = if ($interface) { Join-Path $projeto 'interface-eventos.txt' } else { $null }
+function Evento($texto) {
+    if ($eventos) { try { [System.IO.File]::AppendAllText($eventos, "$texto`r`n", [System.Text.Encoding]::UTF8) } catch {} }
+}
+
+function Passo($n, $texto) { Write-Host ""; Write-Host "[$n/$total] $texto" -ForegroundColor Cyan; Evento "[$n/$total] $texto" }
+function Ok($texto) { Write-Host "  OK  $texto" -ForegroundColor Green; Evento "  OK  $texto" }
+function Aviso($texto) { Write-Host "  !   $texto" -ForegroundColor Yellow; Evento "  !   $texto" }
 function Falha($texto) {
+    Evento "  ERRO  $texto"
     Write-Host ""
     Write-Host "  ERRO  $texto" -ForegroundColor Red
     Write-Host ""
@@ -157,6 +167,7 @@ if (Logado) {
     }
 
     try { Set-Clipboard -Value $codigo } catch {}
+    if ($interface) { Evento "@@codigo $codigo" }
     Start-Process $urlLogin
     Write-Host ""
     Write-Host "  Abri o site da OpenAI no navegador." -ForegroundColor Yellow
@@ -181,6 +192,7 @@ if (Logado) {
         Falha "O login nao foi concluido. Rode o instalador de novo."
     }
     Remove-Item $saidaLogin -ErrorAction SilentlyContinue
+    if ($interface) { Evento "@@logado" }
     Ok "logado"
 }
 
@@ -201,6 +213,10 @@ $claude = @(Get-Process -Name claude -ErrorAction SilentlyContinue |
     Where-Object { $_.Path -match '\\app\\Claude\.exe$|\\AnthropicClaude\\' })
 if ($claude.Count -eq 0) {
     Ok "o Claude esta fechado; ele carrega o servidor quando voce abrir"
+} elseif ($interface) {
+    # A janela do instalador oferece o botão de reiniciar.
+    Evento "@@claude-aberto"
+    Ok "pronto para reiniciar o Claude"
 } elseif ($semPerguntas) {
     Aviso "feche o Claude por completo e abra de novo para ele carregar o servidor"
 } else {
@@ -227,5 +243,6 @@ Write-Host "  Num chat novo (aba Code ou chat comum), peca por exemplo:"
 Write-Host '    "Gera com o ChatGPT um icone 3D de um foguete, sem fundo"'
 Write-Host ""
 try { Stop-Transcript | Out-Null } catch {}
+Evento "@@fim"
 # O instalador .exe confere este código para dizer se deu certo.
 exit 0

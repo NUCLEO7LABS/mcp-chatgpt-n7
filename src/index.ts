@@ -17,7 +17,7 @@ import { MODELO_RECORTE, type OpcoesRecorte, recortarComIA, recorteDisponivel } 
 import { acharNavegador, montarEditavel, renderizarHtml } from "./arte.js";
 import { acharMarca, cssDasFontes, lerKit, listarMarcas, PASTA_MARCAS, salvarMarca } from "./marca.js";
 
-const VERSAO = "1.8.1";
+const VERSAO = "1.9.0";
 const CODEX_BIN = process.env.CODEX_BIN ?? "codex";
 const TIMEOUT_MS = Number(process.env.CHATGPT_TIMEOUT_MS ?? 5 * 60 * 1000);
 

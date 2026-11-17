@@ -76,13 +76,22 @@ Por baixo ele usa o [Codex CLI](https://github.com/openai/codex), a ferramenta o
 
 1. Abra o link no PC novo, logado na sua conta do Claude, e clique em **Baixar**.
 2. Abra o zip e clique duas vezes em **`Instalar-ClauGPT-MCP.exe`**. Se o Windows avisar, clique em *Mais informações → Executar assim mesmo*.
-3. Clique em **Instalar**. Abre uma janela preta que faz cada etapa.
-4. Na etapa do login, o site da OpenAI abre sozinho e o código já fica copiado: cole com **Ctrl+V** e clique em Continuar.
-5. No fim, aperte **Enter** na janela preta para reiniciar o Claude e clique em **Concluir**.
+3. A logo aparece e abre a janela do instalador. Clique em **Instalar**.
+4. Na etapa do login, o site da OpenAI abre sozinho e a janela mostra o código, que já fica copiado: cole com **Ctrl+V** e clique em Continuar.
+5. No fim, clique em **Reiniciar o Claude agora**.
 
 O `.exe` instala em `%LOCALAPPDATA%\mcp-chatgpt` (sem pedir administrador; só o Node.js, se faltar, pode pedir), guarda o registro em `instalacao.log` nessa pasta e aparece em *Configurações → Aplicativos* como **ClauGPT MCP**, de onde dá para desinstalar. A desinstalação tira o servidor das configurações do Claude e apaga a pasta; imagens, kits de marca e o login do ChatGPT ficam.
 
-Se o antivírus barrar o `.exe`, a página também oferece o `Instalar-ClauGPT-MCP.cmd`, que faz a mesma instalação a partir de um arquivo de texto único.
+### Como a janela do instalador funciona
+
+- O `.exe` copia os arquivos, dispara o `iniciar.ps1` escondido e mostra a logo em fade (`instalador\splash.bmp`) enquanto a janela carrega.
+- O `iniciar.ps1` abre `interface\index.html` numa janela do Edge em modo aplicativo (sem barra de endereço, com um perfil temporário) e serve a página num servidorzinho local: só em 127.0.0.1, porta aleatória e uma senha por sessão.
+- O `instalar.ps1` roda por trás, sem janela nenhuma (`MCP_CHATGPT_INTERFACE=1`), e anota cada etapa em `interface-eventos.txt`; a janela lê esse arquivo e mostra as etapas, a porcentagem do download do modelo, o código de login e o botão de reiniciar o Claude.
+- Sem Edge nem Chrome, ou se algo falhar antes da janela aparecer, o `iniciar.ps1` roda o `instalar.ps1` na janela preta, como antes.
+
+Para ver a janela sem instalar nada, rode `node ferramentas/mock-interface.mjs` e abra `http://127.0.0.1:8765/` (o endereço `/mock?fase=instalando&etapa=4&download=47` muda o que ela mostra).
+
+Se o antivírus barrar o `.exe`, a página também oferece o `Instalar-ClauGPT-MCP.cmd`, que faz a mesma instalação na janela preta, a partir de um arquivo de texto único.
 
 ### Gerar uma versão nova dos instaladores
 

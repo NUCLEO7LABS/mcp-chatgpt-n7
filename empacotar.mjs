@@ -16,7 +16,7 @@ const pacote = join(saida, "pacote");
 const versao = JSON.parse(readFileSync(join(raiz, "package.json"), "utf8")).version;
 
 // O que vai para o PC do usuário. node_modules e dist não: o instalar.ps1 instala e compila lá.
-const ARQUIVOS = ["src", "package.json", "package-lock.json", "tsconfig.json", "instalar.ps1", "registrar.cjs", "testar.mjs", "README.md"];
+const ARQUIVOS = ["src", "interface", "package.json", "package-lock.json", "tsconfig.json", "iniciar.ps1", "instalar.ps1", "registrar.cjs", "testar.mjs", "README.md"];
 
 function zipar(destino, pasta, itens) {
   rmSync(destino, { force: true });
