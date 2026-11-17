@@ -10,8 +10,11 @@
 # 'Continue': npm e codex escrevem avisos normais na saída de erro; cada passo confere o código de saída.
 $ErrorActionPreference = 'Continue'
 $projeto = $PSScriptRoot
-$modelo = Join-Path $HOME '.mcp-chatgpt\modelos\birefnet_lite.onnx'
-$urlModelo = 'https://huggingface.co/onnx-community/BiRefNet_lite-ONNX/resolve/main/onnx/model.onnx'
+# IS-Net (DIS, uso geral, licença Apache 2.0): leve, ~1 GB de memória no recorte.
+$modelo = Join-Path $HOME '.mcp-chatgpt\modelos\isnet-general-use.onnx'
+$urlModelo = 'https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx'
+# Modelo usado até a versão 1.7 (pedia ~7 GB de memória): apagado para liberar espaço.
+$modeloAntigo = Join-Path $HOME '.mcp-chatgpt\modelos\birefnet_lite.onnx'
 $urlLogin = 'https://auth.openai.com/codex/device'
 $semPerguntas = $env:MCP_CHATGPT_SEM_PERGUNTAS -eq '1'
 # Versão do Codex testada com este servidor. O servidor lê as imagens geradas de pastas internas do Codex,
@@ -108,9 +111,13 @@ if ($navegadores) {
     Aviso "sem Chrome nem Edge: a ferramenta de montar artes nao vai funcionar. Instale o Google Chrome e rode de novo."
 }
 
-# 4. Modelo de recorte de fundo (214 MB)
-Passo 4 "Modelo de IA para recorte de fundo (214 MB)"
-if ((Test-Path $modelo) -and ((Get-Item $modelo).Length -gt 200MB)) {
+# 4. Modelo de recorte de fundo (171 MB)
+Passo 4 "Modelo de IA para recorte de fundo (171 MB)"
+if (Test-Path $modeloAntigo) {
+    Remove-Item -Force $modeloAntigo -ErrorAction SilentlyContinue
+    Ok "modelo antigo (214 MB) apagado"
+}
+if ((Test-Path $modelo) -and ((Get-Item $modelo).Length -gt 160MB)) {
     Ok "ja baixado"
 } else {
     New-Item -ItemType Directory -Force (Split-Path $modelo) | Out-Null

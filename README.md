@@ -101,7 +101,7 @@ O instalador faz, pulando o que já estiver pronto:
 | 1 | Instala o Node.js (pelo winget; pode pedir permissão de administrador) |
 | 2 | Instala o Codex CLI na versão testada (`$versaoCodex` no `instalar.ps1`); um Codex que já está no PC fica como está |
 | 3 | Instala as bibliotecas e compila o servidor |
-| 4 | Baixa o modelo de recorte de fundo (214 MB) |
+| 4 | Baixa o modelo de recorte de fundo (171 MB) e apaga o antigo, se houver |
 | 5 | Registra o servidor no Claude daquele PC, na aba Code e no chat comum (`registrar.cjs`, com backup de cada configuração) |
 | 6 | Faz o login na conta do ChatGPT (`codex login --device-auth`) |
 | 7 | Testa de verdade: abre o servidor como o Claude abre e faz uma pergunta ao ChatGPT (`testar.mjs`) |
@@ -199,21 +199,40 @@ Se você quiser manter só uma parte (*"deixa só a palmeira da esquerda"*), o C
 
 ### Como o recorte com IA funciona
 
-1. **Segmentação:** o modelo [BiRefNet lite](https://huggingface.co/onnx-community/BiRefNet_lite-ONNX) (licença MIT) acha o objeto principal.
-2. **Refinamento da borda:** a máscara é ajustada às bordas reais na resolução cheia, sem serrilhado.
-3. **Interior sólido:** só a borda encostada no fundo fica semitransparente; o resto do objeto é 100% opaco. Buracos de verdade (o vão de um cadeado, por exemplo) continuam vazados.
-4. **Descontaminação:** a cor do fundo antigo que vaza nas bordas é removida, então não sobra halo.
+Feito para as imagens que o GPT gera com fundo liso, mas funciona com qualquer imagem:
 
-O modelo (214 MB) fica em `%USERPROFILE%\.mcp-chatgpt\modelos\birefnet_lite.onnx`. Para instalar em outro computador:
+1. **Segmentação:** o modelo [IS-Net](https://github.com/xuebinqin/DIS) (uso geral, licença Apache 2.0) separa, de forma grosseira, o objeto do fundo. É leve: ~1 GB de memória e uns 2 a 5 segundos num PC comum.
+2. **Cor do fundo:** quando o fundo é liso ou um degradê suave, a cor dele é ajustada em cada ponto da imagem (uma superfície suave, que cobre vinheta e degradê).
+3. **Borda pela conta das cores:** com o fundo conhecido, a transparência de cada pixel da borda sai da mistura de cores (pixel = transparência × objeto + resto × fundo), e não do palpite do modelo. Fios, pelos, vidro e bordas finas saem com a transparência certa.
+4. **Vãos e áreas claras:** uma área da cor do fundo cercada pelo objeto vira vão só se tiver exatamente a cor do fundo (o buraco da alça de uma xícara); se for só parecida (leite num copo, sobre fundo branco), continua objeto.
+5. **Sombra no chão:** sai por padrão; com `manter_sombra`, fica como sombra preta semitransparente.
+6. **Sem halo:** a cor do fundo é tirada de cada pixel semitransparente da borda.
+7. **Limpeza:** o interior fica 100% opaco, o fundo 100% transparente, e pontinhos soltos somem.
+
+A prévia que o Claude recebe mostra o recorte sobre um fundo escuro e um claro, lado a lado, para conferir as bordas. O recorte também avisa quando o objeto encosta na borda da imagem ou quando objeto e fundo têm cores parecidas demais (aí vale gerar de novo com outro fundo).
+
+Num fundo que não é liso (foto, cenário), vale a máscara do modelo, ajustada às bordas da imagem.
+
+**Comparação** em 37 casos de teste com gabarito (ícones 3D, vidro, bolhas, planta e "cabelo" sobre fundo branco, verde, escuro, degradê e com sombra):
+
+| | 1.7 (BiRefNet) | 1.8 (IS-Net + cor do fundo) |
+|---|---|---|
+| Erro de transparência | 8,4 | 4,7 |
+| Halo nas bordas | 5,2 | 3,5 |
+| Pixels errados | 0,46% | 0,12% |
+| Memória | ~7,5 GB | ~1,1 GB |
+| Tempo por recorte | ~14 s | ~2,3 s |
+
+O modelo (171 MB) fica em `%USERPROFILE%\.mcp-chatgpt\modelos\isnet-general-use.onnx`. Para instalar em outro computador:
 
 ```powershell
 New-Item -ItemType Directory -Force "$HOME\.mcp-chatgpt\modelos"
-curl.exe -L -o "$HOME\.mcp-chatgpt\modelos\birefnet_lite.onnx" https://huggingface.co/onnx-community/BiRefNet_lite-ONNX/resolve/main/onnx/model.onnx
+curl.exe -L -o "$HOME\.mcp-chatgpt\modelos\isnet-general-use.onnx" https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx
 ```
 
-Sem o modelo, o servidor continua funcionando com o recorte antigo, de qualidade inferior.
+Sem o modelo, o servidor continua funcionando com o recorte simples de fundo liso, de qualidade inferior.
 
-**Limite conhecido:** em fotos com folhagem fina (palmeiras, árvores, cabelo muito solto), podem sobrar pedacinhos de fundo entre os detalhes. Para artes, ícones, produtos e personagens, o recorte fica limpo.
+**Limite conhecido:** em fotos com cenário e folhagem fina (palmeiras, árvores), podem sobrar pedacinhos de fundo entre os detalhes. Para o que o GPT gera sobre fundo liso (ícones, produtos, personagens, objetos), o recorte fica limpo.
 
 ## Variáveis opcionais
 
@@ -223,7 +242,7 @@ Sem o modelo, o servidor continua funcionando com o recorte antigo, de qualidade
 | `CHATGPT_TIMEOUT_MS` | Tempo máximo de espera (padrão: 300000 = 5 min) |
 | `CHATGPT_IMAGENS_DIR` | Pasta padrão das imagens geradas (padrão: `Imagens\ChatGPT`) |
 | `CHATGPT_LADO_PREVIA` | Lado maior da prévia em pixels (padrão: 768) |
-| `CHATGPT_MODELO_RECORTE` | Caminho do modelo de recorte .onnx (padrão: `%USERPROFILE%\.mcp-chatgpt\modelos\birefnet_lite.onnx`) |
+| `CHATGPT_MODELO_RECORTE` | Caminho do modelo de recorte .onnx (padrão: `%USERPROFILE%\.mcp-chatgpt\modelos\isnet-general-use.onnx`) |
 
 ## Testar sem o Claude
 

@@ -13,11 +13,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import sharp from "sharp";
 import { z } from "zod";
-import { MODELO_RECORTE, recortarComIA, recorteDisponivel } from "./recorte.js";
+import { MODELO_RECORTE, type OpcoesRecorte, recortarComIA, recorteDisponivel } from "./recorte.js";
 import { acharNavegador, montarEditavel, renderizarHtml } from "./arte.js";
 import { acharMarca, cssDasFontes, lerKit, listarMarcas, PASTA_MARCAS, salvarMarca } from "./marca.js";
 
-const VERSAO = "1.7.1";
+const VERSAO = "1.8.0";
 const CODEX_BIN = process.env.CODEX_BIN ?? "codex";
 const TIMEOUT_MS = Number(process.env.CHATGPT_TIMEOUT_MS ?? 5 * 60 * 1000);
 
@@ -329,9 +329,10 @@ function montarSpec(o: OpcoesImagem): string {
     // O recorte do próprio gerador deixa o objeto semitransparente e com halo; um fundo liso recortado
     // aqui com IA fica muito mais limpo.
     linhas.push(
-      "Fundo: LISO, uma única cor sólida e uniforme que contraste fortemente com o objeto e não apareça nele " +
-        "(sem degradê, textura, cenário, chão, moldura nem sombra projetada). Objeto inteiro dentro do quadro, com " +
-        "margem em volta. O fundo será removido depois.",
+      "Fundo: LISO, uma única cor sólida, chapada e uniforme, que contraste fortemente com o objeto e não apareça " +
+        "em nenhuma parte dele (objeto claro → fundo escuro; objeto escuro ou colorido → fundo claro ou de cor oposta). " +
+        "Sem degradê, vinheta, textura, cenário, chão, moldura, reflexo nem sombra projetada. Objeto inteiro dentro " +
+        "do quadro, com margem em volta, bordas nítidas (sem desfoque de profundidade). O fundo será removido depois.",
     );
   } else if (o.fundo_transparente) {
     linhas.push(
@@ -548,10 +549,13 @@ type MetodoFundo = "ia" | "gerador" | "recorte local" | "falhou";
 
 // Garante PNG com fundo transparente. Com o modelo de recorte instalado, usa a IA local (melhor resultado);
 // sem ele, aceita o recorte do gerador se for real, ou remove um fundo liso.
-async function garantirTransparencia(bytes: Buffer): Promise<{ png: Buffer; metodo: MetodoFundo }> {
+async function garantirTransparencia(
+  bytes: Buffer,
+  opcoes: OpcoesRecorte = {},
+): Promise<{ png: Buffer; metodo: MetodoFundo; avisos?: string[] }> {
   if (await recorteDisponivel()) {
-    const { png } = await recortarComIA(bytes);
-    if ((await bordaTransparente(png)) >= 0.6) return { png, metodo: "ia" };
+    const { png, avisos } = await recortarComIA(bytes, opcoes);
+    if ((await bordaTransparente(png)) >= 0.6) return { png, metodo: "ia", avisos };
   }
   if ((await bordaTransparente(bytes)) >= 0.6) return { png: await sharp(bytes).png().toBuffer(), metodo: "gerador" };
   const recortada = await removerFundoUniforme(bytes);
@@ -566,6 +570,7 @@ type ImagemFinal = {
   largura?: number;
   altura?: number;
   fundo?: MetodoFundo;
+  avisosRecorte?: string[];
   promptFinal?: string;
   conversaId?: string;
   previa: { dados: string; mime: string };
@@ -578,22 +583,25 @@ async function finalizar(
   meta: Record<string, unknown>,
   conversaId: string | undefined,
   querTransparente: boolean,
+  opcoesRecorte: OpcoesRecorte = {},
 ): Promise<ImagemFinal> {
   // sharp recebe os bytes, não o caminho: no Windows ele falha com caminhos curtos (8.3) e com acentos.
   let bytes: Buffer = await readFile(g.arquivo);
   let ext = extname(g.arquivo).toLowerCase() || ".png";
   let fundo: MetodoFundo | undefined;
+  let avisosRecorte: string[] | undefined;
   if (querTransparente) {
-    const r = await garantirTransparencia(bytes);
+    const r = await garantirTransparencia(bytes, opcoesRecorte);
     bytes = r.png;
     fundo = r.metodo;
+    avisosRecorte = r.avisos;
     ext = ".png"; // transparência só faz sentido em PNG
   }
   const caminho = await nomeLivre(destino, base, ext);
   await writeFile(caminho, bytes);
 
   const info = await sharp(bytes).metadata();
-  const previa = await gerarPrevia(bytes, fundo !== undefined && fundo !== "falhou");
+  const previa = fundo !== undefined && fundo !== "falhou" ? await provaDoRecorte(bytes) : await gerarPrevia(bytes, false);
 
   // Ficha ao lado da imagem, para saber depois como ela foi feita.
   const ficha = {
@@ -607,7 +615,7 @@ async function finalizar(
     criada_em: new Date().toISOString(),
   };
   await writeFile(caminho.slice(0, -ext.length) + ".json", JSON.stringify(ficha, null, 2), "utf8");
-  return { caminho, largura: info.width, altura: info.height, fundo, promptFinal: g.promptFinal, conversaId, previa };
+  return { caminho, largura: info.width, altura: info.height, fundo, avisosRecorte, promptFinal: g.promptFinal, conversaId, previa };
 }
 
 // Prévia leve para o Claude: JPEG, ou WEBP quando há transparência.
@@ -621,8 +629,23 @@ async function gerarPrevia(bytes: Buffer, transparente: boolean): Promise<{ dado
       };
 }
 
+// Prévia de um recorte para conferir as bordas: o objeto sobre um fundo escuro e sobre um claro, lado a
+// lado. Sobra de fundo, halo e buracos aparecem num dos dois.
+async function provaDoRecorte(png: Buffer): Promise<{ dados: string; mime: string }> {
+  const lado = Math.round(LADO_PREVIA * 0.75);
+  const objeto = await sharp(png).resize(lado, lado, { fit: "inside", withoutEnlargement: true }).png().toBuffer();
+  const { width = lado, height = lado } = await sharp(objeto).metadata();
+  const sobre = (cor: string) => sharp({ create: { width, height, channels: 3, background: cor } }).composite([{ input: objeto }]).png().toBuffer();
+  const [escuro, claro] = await Promise.all([sobre("#15181d"), sobre("#f1efe9")]);
+  const dados = await sharp({ create: { width: width * 2 + 8, height, channels: 3, background: "#808080" } })
+    .composite([{ input: escuro, left: 0, top: 0 }, { input: claro, left: width + 8, top: 0 }])
+    .jpeg({ quality: 85 })
+    .toBuffer();
+  return { dados: dados.toString("base64"), mime: "image/jpeg" };
+}
+
 function descreverFundo(fundo: MetodoFundo): string {
-  if (fundo === "ia") return "fundo transparente: sim (recorte com IA aqui no computador, bordas refinadas)";
+  if (fundo === "ia") return "fundo transparente: sim (recorte com IA aqui no computador, bordas calculadas pela cor do fundo)";
   if (fundo === "gerador") return "fundo transparente: sim (recorte do ChatGPT, verificado)";
   if (fundo === "recorte local") return "fundo transparente: sim (o ChatGPT entregou com fundo; removido aqui automaticamente)";
   return "fundo transparente: NÃO — o fundo não é uniforme para recortar; tente remover_fundo ou peça um fundo liso";
@@ -799,7 +822,7 @@ Para posts, stories, banners, anúncios, capas, thumbnails e qualquer peça com 
 
 1. Marca: se a peça é de uma marca, chame kit_de_marca primeiro (logo real, cores, fontes, tom, referências). Se a marca não tem kit, crie com salvar_marca a partir do que o usuário disse e mostrou, e peça para ele salvar o logo, as fontes e as referências nas pastas indicadas (imagens coladas no chat comum não chegam como arquivo; na aba Code chegam com caminho e podem ser usadas direto).
 2. Decida o que precisa do GPT (gerar_imagem): fotos, cenas, comida, pessoas, produtos em ambiente, objetos e ícones 3D, texturas, ilustrações. Peça essas imagens SEM texto e SEM logo, no formato da peça, deixando espaço livre onde o texto vai entrar. Elementos que vão ser posicionados sobre o layout (produto, objeto, personagem, ícone 3D) peça com fundo_transparente: true. Se já existe uma referência do estilo, passe-a em imagens_referencia com modo_referencia "parecida".
-3. Recorte: foto ou imagem do usuário que precisa ficar sobre outro fundo → remover_fundo. Logo com fundo → remover_fundo antes de usar.
+3. Recorte: foto ou imagem do usuário que precisa ficar sobre outro fundo → remover_fundo. Logo com fundo → remover_fundo antes de usar. A prévia de todo recorte mostra o objeto sobre fundo escuro e claro: confira se sobrou fundo, halo ou buraco. Se o recorte avisar que a borda tem cor parecida com a do fundo ou que o objeto encosta na borda, gere a imagem de novo (de preferência pedindo um fundo de cor bem diferente do objeto) em vez de usar um recorte ruim. Para produto ou objeto que deve parecer apoiado no chão, use manter_sombra.
 4. Monte a peça no Claude Design: crie uma tela (artefato do tipo Design) com o nome da peça ou da campanha, ou use a tela que já existe para ela, e siga as instruções do próprio tipo Design. Envie para a tela, como arquivos dela, as imagens do GPT, o logo REAL da marca e as fontes da marca (os caminhos vêm de gerar_imagem, remover_fundo e kit_de_marca). Faça uma prancheta por formato, no tamanho exato (post do Instagram 1080×1350, story 1080×1920, quadrado 1080×1080, paisagem 1920×1080), com o texto exato como texto de verdade, a hierarquia e as fontes da marca, as cores da marca e a composição das referências (posição do logo, estilo do título, botões, selos). No story, deixe livres os ~250 px de cima e de baixo, que o Instagram cobre. Nunca peça ao GPT para escrever o texto final nem para desenhar o logo quando existe o arquivo do logo.
 5. Entregue o link da tela e diga ao usuário que ele pode clicar nos textos para editar e exportar as artes pela própria tela. Só gere outra imagem no GPT se o problema estiver na própria imagem.
 
@@ -934,6 +957,10 @@ server.registerTool(
         .boolean()
         .optional()
         .describe("PNG com fundo transparente de verdade (sem fundo/recortado). Conferido e corrigido automaticamente."),
+      manter_sombra: z
+        .boolean()
+        .optional()
+        .describe("Com fundo_transparente: mantém a sombra do objeto no chão como sombra preta semitransparente (padrão: tira)"),
       variacoes: z
         .number()
         .int()
@@ -1038,7 +1065,11 @@ server.registerTool(
             );
           } else if (g.arquivo) {
             const nome = total > 1 ? `${base}-v${i + 1}` : base;
-            imagens.push(await finalizar(g, destino, nome, meta, conversaId, Boolean(args.fundo_transparente)));
+            imagens.push(
+              await finalizar(g, destino, nome, meta, conversaId, Boolean(args.fundo_transparente), {
+                manterSombra: args.manter_sombra,
+              }),
+            );
           }
         }
         if (geracoes.length === 0 && /^\W*ok\W*$/i.test(texto)) {
@@ -1063,6 +1094,8 @@ server.registerTool(
         if (imagens.length > 1) linhas.push(`### Imagem ${i + 1}`);
         linhas.push(`Arquivo: ${img.caminho}`);
         linhas.push(`Tamanho: ${img.largura}×${img.altura}px` + (img.fundo ? ` · ${descreverFundo(img.fundo)}` : ""));
+        if (img.fundo && img.fundo !== "falhou") linhas.push("A prévia mostra o recorte sobre fundo escuro e claro, para conferir as bordas.");
+        for (const aviso of img.avisosRecorte ?? []) linhas.push(`Recorte: ${aviso}`);
         if (img.promptFinal) linhas.push(`Prompt final usado: ${img.promptFinal}`);
         if (img.conversaId) linhas.push(`conversa_id (para ajustar esta imagem): ${img.conversaId}`);
         linhas.push("");
@@ -1088,7 +1121,7 @@ server.registerTool(
     description:
       "Deixa uma imagem que já existe sem fundo e salva como PNG transparente. Use quando o usuário mandar uma " +
       "imagem (ou apontar uma gerada antes) e pedir 'tira o fundo', 'deixa sem fundo', 'PNG transparente'. " +
-      "O recorte é feito com IA aqui no computador (~10–20 s), mantém os pixels originais e não gasta o limite do " +
+      "O recorte é feito com IA aqui no computador (~3–5 s), mantém os pixels originais e não gasta o limite do " +
       "ChatGPT. Só quando o usuário quer manter apenas uma parte específica (o_que_manter) o ChatGPT isola essa " +
       "parte antes (~30–90 s).",
     inputSchema: {
@@ -1098,9 +1131,13 @@ server.registerTool(
         .optional()
         .describe("O que deve ficar na imagem, se não for óbvio (ex.: 'só a pessoa da esquerda')"),
       pasta_destino: z.string().optional().describe("Pasta onde salvar (padrão: a mesma da imagem)"),
+      manter_sombra: z
+        .boolean()
+        .optional()
+        .describe("Mantém a sombra do objeto no chão como sombra preta semitransparente (padrão: tira). Só em fundo liso."),
     },
   },
-  limitar("remover_fundo", async ({ imagem, o_que_manter, pasta_destino }, extra) => {
+  limitar("remover_fundo", async ({ imagem, o_que_manter, pasta_destino, manter_sombra }, extra) => {
     try {
       const [caminho] = await validarImagens([imagem]);
       const destino = resolve(pasta_destino ?? join(caminho, ".."));
@@ -1111,13 +1148,18 @@ server.registerTool(
       const comIA = await recorteDisponivel();
       let png: Buffer | undefined;
       let metodo = "";
+      let avisos: string[] = [];
 
       // 1) Recorte com IA local: mantém os pixels originais, sem gastar o limite do ChatGPT.
       if (!o_que_manter && comIA) {
-        const r = await comProgresso(extra, "Recortando com IA", recortarComIA(original));
+        const r = await comProgresso(extra, "Recortando com IA", recortarComIA(original, { manterSombra: manter_sombra }));
         if ((await bordaTransparente(r.png)) >= 0.6) {
           png = r.png;
-          metodo = `recorte com IA aqui no computador (${r.segundos.toFixed(0)} s)`;
+          metodo =
+            r.modo === "fundo liso"
+              ? `recorte com IA aqui no computador, bordas calculadas pela cor do fundo (${r.segundos.toFixed(0)} s)`
+              : `recorte com IA aqui no computador (${r.segundos.toFixed(0)} s)`;
+          avisos = r.avisos;
         }
       }
 
@@ -1162,7 +1204,8 @@ server.registerTool(
           const falha = r.geracoes.find((x) => x.falha)?.falha;
           throw new Error(falha ? `O ChatGPT não conseguiu recortar: ${falha}` : `O ChatGPT não gerou imagem. ${r.texto}`);
         }
-        const garantido = await garantirTransparencia(await readFile(g.arquivo));
+        const garantido = await garantirTransparencia(await readFile(g.arquivo), { manterSombra: manter_sombra });
+        avisos = garantido.avisos ?? [];
         if (garantido.metodo === "falhou") throw new Error("O ChatGPT devolveu a imagem ainda com fundo. Tente de novo.");
         png = garantido.png;
         metodo =
@@ -1178,10 +1221,15 @@ server.registerTool(
       const saida = await nomeLivre(destino, base, ".png");
       await writeFile(saida, png);
       const info = await sharp(png).metadata();
-      const linhas = [`Arquivo: ${saida}`, `Tamanho: ${info.width}×${info.height}px · ${metodo}`];
+      const linhas = [
+        `Arquivo: ${saida}`,
+        `Tamanho: ${info.width}×${info.height}px · ${metodo}`,
+        "A prévia mostra o recorte sobre fundo escuro e claro, para conferir as bordas.",
+        ...avisos.map((a) => `Recorte: ${a}`),
+      ];
       if (promptFinal) linhas.push(`Prompt final usado: ${promptFinal}`);
       if (conversaId) linhas.push(`conversa_id (para ajustar esta imagem): ${conversaId}`);
-      const previa = await gerarPrevia(png, true);
+      const previa = await provaDoRecorte(png);
       return {
         content: [
           { type: "image" as const, data: previa.dados, mimeType: previa.mime },

@@ -141,7 +141,7 @@ Function EstilizarPagina
   System::Free $2
   IntOp $5 $5 - $3
   IntOp $6 $6 - $4
-  System::Call 'user32::CreateWindowEx(i 0, t "STATIC", t "A janela preta faz, nesta ordem:$\r$\n1   Node.js e Codex CLI (a ponte com a sua conta do ChatGPT)$\r$\n2   Bibliotecas do servidor e o modelo de recorte de fundo (214 MB)$\r$\n3   Login no ChatGPT: o site da OpenAI abre e o código já fica copiado.$\r$\n     Cole com Ctrl+V e clique em Continuar.$\r$\n4   Teste com uma pergunta de verdade e reinício do Claude", i 0x50000000, i r3, i r4, i r5, i r6, p r0, p 0, p 0, p 0) p .r1'
+  System::Call 'user32::CreateWindowEx(i 0, t "STATIC", t "A janela preta faz, nesta ordem:$\r$\n1   Node.js e Codex CLI (a ponte com a sua conta do ChatGPT)$\r$\n2   Bibliotecas do servidor e o modelo de recorte de fundo (171 MB)$\r$\n3   Login no ChatGPT: o site da OpenAI abre e o código já fica copiado.$\r$\n     Cole com Ctrl+V e clique em Continuar.$\r$\n4   Teste com uma pergunta de verdade e reinício do Claude", i 0x50000000, i r3, i r4, i r5, i r6, p r0, p 0, p 0, p 0) p .r1'
   SendMessage $1 ${WM_SETFONT} $Fonte.Texto 1
   SetCtlColors $1 ${COR_SUAVE} ${COR_FUNDO}
 FunctionEnd
@@ -340,6 +340,6 @@ Section "Uninstall"
   Pop $0
   RMDir /r "$INSTDIR"
   DeleteRegKey HKCU "${CHAVE_DESINSTALAR}"
-  MessageBox MB_YESNO|MB_ICONQUESTION "Apagar também o modelo de recorte de fundo (214 MB)?$\r$\n$\r$\nSe você for instalar de novo depois, escolha Não: assim ele não precisa ser baixado outra vez." IDNO +2
+  MessageBox MB_YESNO|MB_ICONQUESTION "Apagar também o modelo de recorte de fundo (171 MB)?$\r$\n$\r$\nSe você for instalar de novo depois, escolha Não: assim ele não precisa ser baixado outra vez." IDNO +2
   RMDir /r "$PROFILE\.mcp-chatgpt"
 SectionEnd
