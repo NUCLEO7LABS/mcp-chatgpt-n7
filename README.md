@@ -213,15 +213,19 @@ A prévia que o Claude recebe mostra o recorte sobre um fundo escuro e um claro,
 
 Num fundo que não é liso (foto, cenário), vale a máscara do modelo, ajustada às bordas da imagem.
 
-**Comparação** em 37 casos de teste com gabarito (ícones 3D, vidro, bolhas, planta e "cabelo" sobre fundo branco, verde, escuro, degradê e com sombra):
+**Comparação** em 37 casos de teste com gabarito (ícones 3D, vidro, bolhas, planta e "cabelo" com fios finos semitransparentes, sobre fundo branco, verde, escuro, degradê e com sombra):
 
-| | 1.7 (BiRefNet) | 1.8 (IS-Net + cor do fundo) |
+| | 1.7 (BiRefNet) | 1.8.1 (IS-Net + cor do fundo) |
 |---|---|---|
-| Erro de transparência | 8,4 | 4,7 |
-| Halo nas bordas | 5,2 | 3,5 |
-| Pixels errados | 0,46% | 0,12% |
+| Erro de transparência (média) | 8,4 | 2,6 |
+| Halo nas bordas (média) | 5,2 | 2,4 |
+| Pixels errados (média) | 0,46% | 0,03% |
+| Cabelo: erro de transparência | 40–52 | 6–8 |
+| Cabelo: pixels errados | 2,3–3,8% | 0,002–0,006% |
 | Memória | ~7,5 GB | ~1,1 GB |
-| Tempo por recorte | ~14 s | ~2,3 s |
+| Tempo por recorte | ~14 s | ~3 s |
+
+Para fios (cabelo, pelo, franja), a borda é calculada fio a fio: a cor pura de cada fio fica na reta que sai da cor do fundo e passa pela cor do pixel, então a transparência sai da distância até o fundo. Bordas de objeto sólido (encostadas no miolo do objeto) usam a cor do miolo. Áreas interiores mais claras não viram transparência, porque um fio sempre tem fundo a poucos pixels e o interior não.
 
 O modelo (171 MB) fica em `%USERPROFILE%\.mcp-chatgpt\modelos\isnet-general-use.onnx`. Para instalar em outro computador:
 

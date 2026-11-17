@@ -512,23 +512,49 @@ export async function recortarComIA(bytes: Buffer, opcoes: OpcoesRecorte = {}): 
     tirarVaos(cercado, dist, w, h, Math.max(3, 1.5 * ajuste.ruido));
   }
 
+  // Miolo do objeto: onde o modelo tem certeza E há objeto em toda a volta. Um fio de cabelo ou um pelo
+  // nunca tem: fica fora do miolo e a transparência dele sai da conta das cores.
+  const certo = new Float32Array(n);
+  for (let i = 0; i < n; i++) certo[i] = seg[i] > 0.97 ? 1 : 0;
+  const volta = mediaJanela(certo, w, h, Math.max(2, Math.round(Math.max(w, h) / 350)));
+
   // Mapa: 1 = objeto com certeza, 0 = fundo com certeza, 2 = borda (decide pela conta das cores).
   const mapa = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
     // cercado = 1 só nas áreas cercadas grandes que são objeto
     const vao = !cercado[i];
-    if (cercado[i] || seg[i] > 0.97 || (seg[i] > 0.6 && dist[i] > 80)) mapa[i] = 1;
+    const miolo = ajuste ? volta[i] > 0.999 : seg[i] > 0.97 || (seg[i] > 0.6 && dist[i] > 80);
+    if (cercado[i] || miolo) mapa[i] = 1;
     else if (sombra[i] > 0 && vao) mapa[i] = 0;
-    else if (seg[i] < 0.03 && (!ajuste || dist[i] < 2 * ruido)) mapa[i] = 0;
+    else if (seg[i] < 0.03 && (!ajuste || dist[i] < 1.5 * ruido)) mapa[i] = 0;
     else if (dist[i] < ruido && seg[i] < 0.5 && vao) mapa[i] = 0;
     else if (dist[i] < ruido && !vao) mapa[i] = 1;
     else mapa[i] = 2;
   }
 
-  // Cor do objeto atrás de cada pixel de borda: a dos pixels de objeto mais próximos.
+  // Cor do objeto atrás de cada pixel de borda, por dois caminhos:
+  // - a do miolo mais próximo (serve para bordas de objetos sólidos);
+  // - a dos pixels vizinhos mais diferentes do fundo (o "centro" dos fios), que serve para cabelo, pelo e
+  //   franja, cuja cor nem sempre é a do corpo (cabelo escuro sobre um rosto claro).
   const pesoObjeto = new Float32Array(n);
   for (let i = 0; i < n; i++) pesoObjeto[i] = mapa[i] === 1 ? 1 : 0;
-  const objeto = difundir(cor, pesoObjeto, Uint8Array.from(mapa, (v) => (v === 2 ? 1 : 0)), w, h);
+  const ehBorda = Uint8Array.from(mapa, (v) => (v === 2 ? 1 : 0));
+  const objeto = difundir(cor, pesoObjeto, ehBorda, w, h);
+  const pesoForte = new Float32Array(n);
+  for (let i = 0; i < n; i++) pesoForte[i] = mapa[i] === 0 ? 0 : (dist[i] / 255) ** 4;
+  const raioFio = Math.max(2, Math.round(Math.max(w, h) / 300));
+  const mForte = mediaJanela(pesoForte, w, h, raioFio);
+  const vizinho = cor.map((canal) => {
+    const v = new Float32Array(n);
+    for (let i = 0; i < n; i++) v[i] = canal[i] * pesoForte[i];
+    const m = mediaJanela(v, w, h, raioFio);
+    for (let i = 0; i < n; i++) m[i] = mForte[i] > 1e-6 ? m[i] / mForte[i] : 0;
+    return m;
+  });
+
+  // Borda encostada no miolo (borda de objeto sólido) ou fio solto, longe dele: cada uma tem a sua conta.
+  // A faixa cobre o encolhimento do miolo mais a transição da borda.
+  const encostado = mediaJanela(pesoObjeto, w, h, Math.max(5, Math.round(Math.max(w, h) / 150)));
 
   const alfa = new Float32Array(n);
   let bordas = 0;
@@ -538,34 +564,90 @@ export async function recortarComIA(bytes: Buffer, opcoes: OpcoesRecorte = {}): 
       alfa[i] = mapa[i];
       continue;
     }
-    // pixel = alfa·objeto + (1−alfa)·fundo  →  alfa = projeção de (pixel − fundo) em (objeto − fundo)
-    let dot = 0;
-    let den = 0;
-    for (let ch = 0; ch < 3; ch++) {
-      const fb = objeto[ch][i] - fundo[ch][i];
-      dot += (cor[ch][i] - fundo[ch][i]) * fb;
-      den += fb * fb;
+    // pixel = alfa·objeto + (1−alfa)·fundo, com duas estimativas da cor do objeto: a do miolo mais próximo
+    // e a dos vizinhos mais diferentes do fundo (o "centro" dos fios).
+    const d = dist[i];
+    let melhor = { alfa: 0, separacao: 0 };
+    if (encostado[i] > 0) {
+      // Borda de objeto sólido: alfa = projeção do pixel na reta fundo→objeto. Entre as duas cores, fica a
+      // que melhor explica o pixel; empatando, a mais diferente do fundo.
+      let nota = Infinity;
+      for (const fonte of mForte[i] > 1e-6 ? [objeto, vizinho] : [objeto]) {
+        let dot = 0;
+        let den = 0;
+        for (let ch = 0; ch < 3; ch++) {
+          const fb = fonte[ch][i] - fundo[ch][i];
+          dot += (cor[ch][i] - fundo[ch][i]) * fb;
+          den += fb * fb;
+        }
+        if (den <= 0) continue;
+        const a = Math.min(1, Math.max(0, dot / den));
+        let resto = 0;
+        for (let ch = 0; ch < 3; ch++) resto += (cor[ch][i] - fundo[ch][i] - a * (fonte[ch][i] - fundo[ch][i])) ** 2;
+        const sep = Math.sqrt(den);
+        const n2 = Math.sqrt(resto) / ruido - sep / 255;
+        if (n2 < nota) {
+          nota = n2;
+          melhor = { alfa: a, separacao: sep };
+        }
+      }
+    } else {
+      // Fio solto (cabelo, pelo, franja): a cor pura do fio está na reta que sai do fundo e passa pelo pixel.
+      // A direção vem do próprio pixel; falta a distância dela até o fundo ("força"), e alfa = distância do
+      // pixel ao fundo / força. Vale a maior das duas estimativas medidas ao longo da reta: a dos vizinhos
+      // é uma mistura com o fundo e sempre fica abaixo da real.
+      // Só vale se a cor do pixel aponta para a de algum fio; senão é ruído e decide o modelo.
+      let forca = 0;
+      let alinhado = 0;
+      for (const fonte of mForte[i] > 1e-6 ? [objeto, vizinho] : [objeto]) {
+        let proj = 0;
+        let den = 0;
+        for (let ch = 0; ch < 3; ch++) {
+          const fb = fonte[ch][i] - fundo[ch][i];
+          proj += fb * (cor[ch][i] - fundo[ch][i]);
+          den += fb * fb;
+        }
+        if (d <= 0 || den <= 0) continue;
+        const cosseno = proj / (d * Math.sqrt(den));
+        if (cosseno < 0.85) continue;
+        alinhado = Math.max(alinhado, cosseno);
+        melhor.separacao = Math.max(melhor.separacao, Math.sqrt(den));
+        forca = Math.max(forca, proj / d);
+      }
+      if (!alinhado) {
+        // Igual ao fundo, e o modelo também acha que é fundo: é fundo. Senão (leite branco num copo sobre
+        // fundo branco), decide o modelo.
+        if (ajuste && d < 2 * ruido && seg[i] < 0.5) {
+          alfa[i] = 0;
+          bordas++;
+          continue;
+        }
+        melhor.separacao = 0;
+      }
+      melhor.alfa = forca > 0 ? Math.min(1, d / Math.max(forca, d)) : 0;
     }
-    const separacao = Math.sqrt(den);
-    const pelaCor = den > 0 ? Math.min(1, Math.max(0, dot / den)) : 0;
     // Objeto e fundo de cores parecidas: a conta não decide, vale mais o modelo.
-    let confianca = Math.min(1, Math.max(0, (separacao - 2 * ruido) / 40));
+    let confianca = Math.min(1, Math.max(0, (melhor.separacao - 2 * ruido) / 40));
     if (!ajuste) confianca *= 0.8;
-    alfa[i] = confianca * pelaCor + (1 - confianca) * alfaModelo[i];
+    alfa[i] = confianca * melhor.alfa + (1 - confianca) * alfaModelo[i];
     bordas++;
     if (confianca < 0.3) parecidas++;
     if (alfa[i] < 0.03) alfa[i] = 0;
     else if (alfa[i] > 0.97) alfa[i] = 1;
   }
 
-  // Meio-termo só faz sentido na borda, encostado no fundo: manchas semitransparentes no meio do objeto
-  // (dúvida do modelo) viram sólidas; buracos de verdade têm fundo 100% transparente e continuam vazados.
+  // Meio-termo que veio da dúvida do modelo (não da conta das cores) só faz sentido encostado no fundo:
+  // longe dele vira sólido. Buracos de verdade têm fundo 100% transparente e continuam vazados.
   const vazio = new Float32Array(n);
   for (let i = 0; i < n; i++) vazio[i] = alfa[i] < 0.02 ? 1 : 0;
   const pertoDoVazio = mediaJanela(vazio, w, h, Math.max(3, Math.round(Math.max(w, h) / 200)));
-  for (let i = 0; i < n; i++) if (alfa[i] >= 0.02 && alfa[i] < 1 && pertoDoVazio[i] === 0) alfa[i] = 1;
+  for (let i = 0; i < n; i++) {
+    // Um fio sempre tem fundo a poucos pixels; uma área interior mais clara (ou mais escura) do objeto, não.
+    if (alfa[i] >= 0.02 && alfa[i] < 1 && pertoDoVazio[i] === 0) alfa[i] = 1;
+  }
 
-  tirarIlhas(alfa, seg, w, h);
+  // Pontinhos soltos: no fundo liso, só os que quase não diferem do fundo (ruído); pedaços de fio ficam.
+  tirarIlhas(alfa, ajuste ? Float32Array.from(dist, (d) => (d > 4 * ruido ? 1 : 0)) : seg, w, h);
 
   // Cor final: nas bordas, tira a cor do fundo que vazou (pixel = alfa·objeto + (1−alfa)·fundo).
   const saida = Buffer.alloc(n * 4);
