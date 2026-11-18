@@ -3,9 +3,14 @@
 //   Instalar-ClauGPT-MCP.zip       o .exe dentro de um .zip, para a página de download
 //   Instalar-ClauGPT-MCP.cmd       alternativa em arquivo único, para PCs onde o antivírus barra o .exe
 //   Instalar-ClauGPT-MCP-cmd.zip   o .cmd dentro de um .zip, para a página
+//   clauGPT-mcp-<versão>.tar.gz    pacote da atualização automática (com o servidor já compilado)
+//   clauGPT-mcp-<versão>.tar.gz.sha256  a impressão digital dele
+//   clauGPT-mcp.json               versão e impressão digital, que o servidor instalado lê para se atualizar
+// Rode "npm run build" antes: o pacote de atualização leva a pasta dist.
 // Precisa do makensis (NSIS 3) no PATH e de zip (Linux/Mac) ou do tar do Windows 10+.
 // Uso: node empacotar.mjs
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -71,6 +76,19 @@ const cmd = [
 ].join("\r\n");
 writeFileSync(join(saida, "Instalar-ClauGPT-MCP.cmd"), cmd);
 zipar(join(saida, "Instalar-ClauGPT-MCP-cmd.zip"), saida, ["Instalar-ClauGPT-MCP.cmd"]);
+
+// 3. O pacote da atualização automática: os mesmos arquivos, mais o servidor compilado.
+if (!existsSync(join(raiz, "dist", "index.js"))) throw new Error('Falta a pasta dist: rode "npm run build" antes.');
+cpSync(join(raiz, "dist"), join(pacote, "dist"), { recursive: true });
+const tgz = join(saida, `clauGPT-mcp-${versao}.tar.gz`);
+execFileSync("tar", ["-czf", tgz, "-C", pacote, ...ARQUIVOS, "dist"], { stdio: "inherit" });
+const hash = createHash("sha256").update(readFileSync(tgz)).digest("hex");
+writeFileSync(`${tgz}.sha256`, `${hash}  clauGPT-mcp-${versao}.tar.gz\n`);
+// O que o servidor instalado lê para saber se há versão nova (pelo link fixo releases/latest/download).
+writeFileSync(
+  join(saida, "clauGPT-mcp.json"),
+  JSON.stringify({ versao, pacote: `clauGPT-mcp-${versao}.tar.gz`, sha256: hash, instalador: "Instalar-ClauGPT-MCP.exe" }, null, 2) + "\n",
+);
 
 rmSync(pacote, { recursive: true, force: true });
 console.log(`Versão ${versao} gerada em ${saida}`);

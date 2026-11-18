@@ -16,8 +16,9 @@ import { z } from "zod";
 import { MODELO_RECORTE, type OpcoesRecorte, recortarComIA, recorteDisponivel } from "./recorte.js";
 import { acharNavegador, montarEditavel, renderizarHtml } from "./arte.js";
 import { acharMarca, cssDasFontes, lerKit, listarMarcas, PASTA_MARCAS, salvarMarca } from "./marca.js";
+import { agendarAtualizacoes, estadoAtualizacao, tirarAviso, verificarAtualizacao } from "./atualizacao.js";
 
-const VERSAO = "1.9.0";
+const VERSAO = "1.10.0";
 const CODEX_BIN = process.env.CODEX_BIN ?? "codex";
 const TIMEOUT_MS = Number(process.env.CHATGPT_TIMEOUT_MS ?? 5 * 60 * 1000);
 
@@ -785,6 +786,12 @@ function aindaTrabalhando(id: string, tarefa: Tarefa): Resultado {
   };
 }
 
+// Junta à resposta o aviso de atualização do servidor, se houver (vai uma vez só).
+function comAviso(r: Resultado): Resultado {
+  const aviso = tirarAviso();
+  return aviso ? { ...r, content: [...r.content, { type: "text", text: `Aviso do ClauGPT MCP: ${aviso}` }] } : r;
+}
+
 // Envolve o corpo de uma ferramenta para responder sempre dentro de ESPERA_MS.
 function limitar<A>(nome: string, corpo: (args: A, extra: Extra) => Promise<Resultado>) {
   return async (args: A, extra: Extra): Promise<Resultado> => {
@@ -801,7 +808,7 @@ function limitar<A>(nome: string, corpo: (args: A, extra: Extra) => Promise<Resu
 
     const pronto = await esperar(tarefa, ESPERA_MS);
     ativa = false;
-    if (pronto) return pronto;
+    if (pronto) return comAviso(pronto);
 
     void limparTarefasVelhas();
     const id = randomUUID().slice(0, 8);
@@ -1605,6 +1612,15 @@ server.registerTool(
     }
     const geradas = await readdir(join(CODEX_HOME, "generated_images")).catch(() => undefined);
     itens.push(`      Imagens do Codex: ${join(CODEX_HOME, "generated_images")}${geradas ? ` (${geradas.length} conversas)` : " (ainda vazia)"}`);
+    const at = estadoAtualizacao();
+    const atOk = at.situacao !== "erro";
+    item(
+      atOk,
+      `Atualização automática: ${at.situacao}` +
+        (at.ultima ? ` (última publicada: ${at.ultima})` : "") +
+        (at.detalhe ? ` · ${at.detalhe}` : "") +
+        (at.linkInstalador ? ` · instalador: ${at.linkInstalador}` : ""),
+    );
     const andamento = [...tarefas.entries()].filter(([, t]) => !t.resultado);
     if (andamento.length) itens.push(`      Trabalhos em andamento: ${andamento.map(([id, t]) => `${id} (${t.nome})`).join(", ")}`);
 
@@ -1614,9 +1630,31 @@ server.registerTool(
   },
 );
 
+server.registerTool(
+  "atualizar_mcp",
+  {
+    title: "Atualizar o ClauGPT MCP",
+    description:
+      "Confere agora no GitHub se saiu versão nova do ClauGPT MCP e, se só o código mudou, instala sozinha " +
+      "(vale depois de reiniciar o Claude). Se a versão nova precisar do instalador, devolve o link. O servidor já " +
+      "confere sozinho a cada 12 horas; use quando o usuário pedir para atualizar ou perguntar a versão.",
+    inputSchema: {},
+  },
+  async () => {
+    const r = await verificarAtualizacao(VERSAO);
+    tirarAviso(); // a resposta abaixo já diz tudo
+    const linhas = [`Versão instalada: ${VERSAO}`, `Situação: ${r.situacao}${r.detalhe ? ` (${r.detalhe})` : ""}`];
+    if (r.ultima) linhas.push(`Última versão publicada: ${r.ultima}`);
+    if (r.situacao === "instalada") linhas.push("Diga ao usuário para reiniciar o Claude (ícone perto do relógio → Sair, e abrir de novo) para usar a versão nova.");
+    if (r.situacao === "precisa do instalador") linhas.push(`Instalador da versão nova: ${r.linkInstalador}`);
+    return { isError: r.situacao === "erro", content: [{ type: "text", text: linhas.join("\n") }] };
+  },
+);
+
 function basenameSemExt(caminho: string): string {
   const nome = caminho.split(/[\\/]/).pop() ?? "imagem";
   return nome.slice(0, nome.length - extname(nome).length);
 }
 
 await server.connect(new StdioServerTransport());
+agendarAtualizacoes(VERSAO);

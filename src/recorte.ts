@@ -6,8 +6,9 @@
 //    uma superfície em cada ponto da imagem. Com a cor do fundo conhecida, a transparência de cada pixel
 //    da borda sai da conta da mistura de cores (pixel = alfa·objeto + (1−alfa)·fundo), e não do palpite do
 //    modelo: fios, pelos, vidro e bordas finas saem com a transparência certa.
-// 3. Sombras projetadas no fundo (escurecimento da mesma cor do fundo) são tiradas, ou mantidas como
-//    sombra preta semitransparente, se pedido.
+// 3. Sombras no chão são tiradas, ou mantidas como uma camada semitransparente no tom delas, se pedido.
+//    A sombra é reconhecida pela direção em que escurece a cor do fundo (aprendida da própria imagem):
+//    vale para sombra neutra e para sombra tingida (marrom no bege, azulada no branco).
 // 4. Cor das bordas: com o fundo conhecido, a cor do fundo é tirada de cada pixel semitransparente
 //    (nada de halo branco ou colorido em volta).
 // 5. Limpeza: o interior do objeto fica 100% opaco, o fundo 100% transparente, e pontinhos soltos somem.
@@ -237,26 +238,33 @@ function ajustarFundo(c: Float32Array[], seg: Float32Array, w: number, h: number
       }
     }
     coef = atb.map((v) => resolver(ata, v));
-    // Resíduo de cada amostra; as muito fora (pedaços do objeto, sombra) saem da próxima rodada.
+    // Resíduo de cada amostra; as muito fora (pedaços do objeto, sombra) saem da próxima rodada. Quem
+    // está mais escuro que a superfície sai mais cedo: uma sombra grande não pode puxar o fundo para baixo.
     const res = new Float64Array(amostras.length);
+    const escuro = new Uint8Array(amostras.length);
     for (let k = 0; k < amostras.length; k++) {
       const i = amostras[k];
       termos(nx(i % w), ny(Math.floor(i / w)), t);
       let s = 0;
+      let sinal = 0;
       for (let ch = 0; ch < 3; ch++) {
         let v = 0;
         for (let a = 0; a < TERMOS; a++) v += coef[ch][a] * t[a];
         s += (c[ch][i] - v) ** 2;
+        sinal += c[ch][i] - v;
       }
       res[k] = Math.sqrt(s);
+      escuro[k] = sinal < 0 ? 1 : 0;
     }
     const ordenado = Float64Array.from(res).sort();
-    const limite = Math.max(6, 4 * 1.4826 * ordenado[ordenado.length >> 1]);
+    const desvio = 1.4826 * ordenado[ordenado.length >> 1];
+    const limite = Math.max(6, 4 * desvio);
+    const limiteEscuro = Math.max(5, 2.5 * desvio);
     dentro = new Uint8Array(amostras.length);
     let soma = 0;
     let conta = 0;
     for (let k = 0; k < amostras.length; k++) {
-      if (res[k] <= limite) {
+      if (res[k] <= (escuro[k] ? limiteEscuro : limite)) {
         dentro[k] = 1;
         soma += res[k] * res[k];
         conta++;
@@ -356,9 +364,11 @@ function marcarAreasPequenas(marca: Uint8Array, w: number, h: number, minimo: nu
   }
 }
 
-// Zera, em "cercado", as áreas cuja cor fica a menos de "limite" da cor do fundo (vãos de verdade). Usa a
-// mediana: os pixels da beirada do vão, misturados com o objeto, não puxam a conta.
-function tirarVaos(cercado: Uint8Array, dist: Float32Array, w: number, h: number, limite: number) {
+// Zera, em "cercado", as áreas que são vãos de verdade: a cor fica a menos de "limite" da cor do fundo (pela
+// mediana, para os pixels da beirada, misturados com o objeto, não puxarem a conta), ou a área mostra fundo
+// e sombra (a sombra de chão passando pelo vão da alça de uma xícara), com uma parte na cor exata do fundo.
+// Um pedaço claro do objeto (leite num copo sobre fundo branco) não tem parte nenhuma na cor exata.
+function tirarVaos(cercado: Uint8Array, dist: Float32Array, pareceSombra: Uint8Array, w: number, h: number, limite: number) {
   const n = w * h;
   const visto = new Uint8Array(n);
   const fila = new Int32Array(n);
@@ -379,9 +389,17 @@ function tirarVaos(cercado: Uint8Array, dist: Float32Array, w: number, h: number
       }
     }
     const valores = new Float32Array(fim);
-    for (let k = 0; k < fim; k++) valores[k] = dist[fila[k]];
+    let exatos = 0;
+    let fundoOuSombra = 0;
+    for (let k = 0; k < fim; k++) {
+      const i = fila[k];
+      valores[k] = dist[i];
+      if (dist[i] < limite) exatos++;
+      if (dist[i] < limite || pareceSombra[i]) fundoOuSombra++;
+    }
     valores.sort();
-    if (valores[fim >> 1] < limite) for (let k = 0; k < fim; k++) cercado[fila[k]] = 0;
+    const vao = valores[fim >> 1] < limite || (exatos >= 0.25 * fim && fundoOuSombra >= 0.85 * fim);
+    if (vao) for (let k = 0; k < fim; k++) cercado[fila[k]] = 0;
   }
 }
 
@@ -469,29 +487,107 @@ export async function recortarComIA(bytes: Buffer, opcoes: OpcoesRecorte = {}): 
     dist[i] = Math.hypot(cor[0][i] - fundo[0][i], cor[1][i] - fundo[1][i], cor[2][i] - fundo[2][i]);
   }
 
-  // Sombra projetada: a mesma cor do fundo, só que mais escura por igual nos três canais.
-  const sombra = new Float32Array(n);
+  // Sombra no chão. Num render, a sombra não é só o fundo mais escuro por igual: no bege ela puxa para o
+  // marrom, no azul fica mais saturada, no branco às vezes azulada. Em cada pixel, quanto cada canal perdeu
+  // em relação ao fundo (1 − pixel/fundo) aponta numa direção; numa sombra essa direção é a mesma do começo
+  // ao fim, só muda a intensidade. A direção desta imagem sai dos pixels de sombra mais óbvios.
+  const sombra = new Float32Array(n); // força da sombra em cada pixel (0 = sem sombra)
+  const pareceSombra = new Uint8Array(n); // escurece o fundo na direção da sombra (mesmo se não for aceito)
+  const fundoClaro = fundo.map((canal) => Float32Array.from(canal)); // fundo sem sombra
   if (ajuste) {
-    const folga = 0.05 + (2 * ruido) / 255;
+    const perda = (i: number, ch: number) => 1 - cor[ch][i] / Math.max(1, fundo[ch][i]);
+    const claroDemais = (i: number) => Math.min(fundo[0][i], fundo[1][i], fundo[2][i]) < 25;
+    // Sombra é mancha contínua e suave; cabelo, pelo e franja alternam fio e vão a cada pixel. Só conta como
+    // sombra o que tem quase toda a vizinhança também mais escura que o fundo, e com intensidade parecida.
+    const raioMancha = Math.max(2, Math.round(Math.max(w, h) / 400));
+    const escurece = new Float32Array(n);
     for (let i = 0; i < n; i++) {
-      if (seg[i] >= 0.5 || dist[i] < ruido) continue;
-      let min = Infinity;
-      let max = -Infinity;
-      let soma = 0;
-      let ok = true;
-      for (let ch = 0; ch < 3; ch++) {
-        const b = fundo[ch][i];
-        if (b < 25) {
-          ok = false;
-          break;
-        }
-        const r = cor[ch][i] / b;
-        min = Math.min(min, r);
-        max = Math.max(max, r);
-        soma += r;
+      if (seg[i] >= 0.5 || dist[i] < ruido || claroDemais(i)) continue;
+      if (perda(i, 0) > -0.02 && perda(i, 1) > -0.02 && perda(i, 2) > -0.02) escurece[i] = 1;
+    }
+    const continuo = mediaJanela(escurece, w, h, raioMancha);
+    const amostras: number[][] = [];
+    for (let i = 0; i < n; i += 2) {
+      if (seg[i] >= 0.03 || dist[i] < 3 * ruido || claroDemais(i) || continuo[i] < 0.97) continue;
+      const v = [perda(i, 0), perda(i, 1), perda(i, 2)];
+      if (v.some((x) => x < -0.02)) continue;
+      const norma = Math.hypot(v[0], v[1], v[2]);
+      if (norma > 0.05) amostras.push(v.map((x) => x / norma));
+    }
+    let direcao = [1, 1, 1].map((x) => x / Math.sqrt(3));
+    if (amostras.length > 200) {
+      const mediana = [0, 1, 2].map((ch) => {
+        const v = Float32Array.from(amostras, (a) => a[ch]).sort();
+        return v[v.length >> 1];
+      });
+      const norma = Math.hypot(mediana[0], mediana[1], mediana[2]);
+      if (norma > 0) direcao = mediana.map((x) => x / norma);
+    }
+
+    const forcaDaSombra = (i: number) => {
+      const luzPixel = 0.299 * cor[0][i] + 0.587 * cor[1][i] + 0.114 * cor[2][i];
+      const luzFundo = 0.299 * fundo[0][i] + 0.587 * fundo[1][i] + 0.114 * fundo[2][i];
+      return Math.min(1, Math.max(0.01, 1 - luzPixel / Math.max(1, luzFundo)));
+    };
+    // Candidatos: escurecem o fundo na direção da sombra desta imagem.
+    const forca = new Float32Array(n);
+    const candidato = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      if (!escurece[i]) continue;
+      const v = [perda(i, 0), perda(i, 1), perda(i, 2)];
+      const desvio = ruido / Math.max(40, Math.min(fundo[0][i], fundo[1][i], fundo[2][i]));
+      if (v.some((x) => x < -2 * desvio)) continue; // algum canal ficou mais claro: não é sombra
+      const ao = v[0] * direcao[0] + v[1] * direcao[1] + v[2] * direcao[2];
+      const fora = Math.hypot(v[0] - ao * direcao[0], v[1] - ao * direcao[1], v[2] - ao * direcao[2]);
+      if (ao > 2 * desvio && ao < 1.6 && fora < Math.max(2 * desvio, 0.22 * ao)) {
+        candidato[i] = 1;
+        pareceSombra[i] = 1;
+        forca[i] = ao;
       }
-      const m = soma / 3;
-      if (ok && m < 0.99 && m > 0.08 && max - min < folga) sombra[i] = 1 - m;
+    }
+    // Mancha contínua e suave: vizinhança quase toda candidata, intensidade variando pouco. E do lado de
+    // fora do objeto: sombra de chão se liga ao resto do fundo; uma área cercada pelo objeto (leite num copo
+    // sobre fundo branco) não é sombra.
+    const foraDoObjeto = ligadoABorda(Uint8Array.from(seg, (v) => (v < 0.5 ? 1 : 0)), w, h);
+    const fracao = mediaJanela(candidato, w, h, raioMancha);
+    const media1 = mediaJanela(forca, w, h, raioMancha);
+    const quadrado = Float32Array.from(forca, (v) => v * v);
+    const media2 = mediaJanela(quadrado, w, h, raioMancha);
+    for (let i = 0; i < n; i++) {
+      if (!candidato[i] || fracao[i] < 0.9 || !foraDoObjeto[i]) continue;
+      const variacao = Math.sqrt(Math.max(0, media2[i] - media1[i] * media1[i])) / Math.max(1e-3, media1[i]);
+      if (variacao > 0.35) continue;
+      sombra[i] = forcaDaSombra(i);
+    }
+    // A beirada da sombra, onde ela se desfaz, fica de fora da regra da mancha contínua: estende a sombra
+    // aceita aos vizinhos que também escurecem na direção dela.
+    for (let passo = 0; passo < 4; passo++) {
+      const perto = mediaJanela(Float32Array.from(sombra, (v) => (v > 0 ? 1 : 0)), w, h, raioMancha);
+      let novos = 0;
+      for (let i = 0; i < n; i++) {
+        if (sombra[i] === 0 && candidato[i] && foraDoObjeto[i] && perto[i] > 0) {
+          sombra[i] = forcaDaSombra(i);
+          novos++;
+        }
+      }
+      if (!novos) break;
+    }
+
+    // Fundo sombreado: nos pixels de sombra, o fundo de verdade é o próprio pixel; nas bordas do objeto
+    // perto dela, o fundo escurecido da sombra vizinha. Assim a base do objeto, onde encosta na sombra,
+    // não ganha franja escura, e a sombra não vira parte do objeto.
+    const pesoSombra = Float32Array.from(sombra, (v) => (v > 0 ? 1 : 0));
+    const pertoDaSombra = mediaJanela(pesoSombra, w, h, Math.max(8, Math.round(Math.max(w, h) / 40)));
+    const fator = [0, 1, 2].map((ch) => Float32Array.from(cor[ch], (c, i) => (sombra[i] > 0 ? c / Math.max(1, fundo[ch][i]) : 1)));
+    const alvo = new Uint8Array(n);
+    // Só onde o pixel já difere do fundo claro: um pixel igual ao fundo (o vão da alça de uma xícara, ao
+    // lado da sombra) continua fundo.
+    for (let i = 0; i < n; i++) alvo[i] = sombra[i] === 0 && seg[i] >= 0.03 && pertoDaSombra[i] > 0 && dist[i] >= ruido ? 1 : 0;
+    const fatorPerto = difundir(fator, pesoSombra, alvo, w, h);
+    for (let i = 0; i < n; i++) {
+      if (sombra[i] === 0 && !alvo[i]) continue;
+      for (let ch = 0; ch < 3; ch++) fundo[ch][i] = fundoClaro[ch][i] * Math.min(1, fatorPerto[ch][i]);
+      dist[i] = Math.hypot(cor[0][i] - fundo[0][i], cor[1][i] - fundo[1][i], cor[2][i] - fundo[2][i]);
     }
   }
 
@@ -509,7 +605,9 @@ export async function recortarComIA(bytes: Buffer, opcoes: OpcoesRecorte = {}): 
     const ligado = ligadoABorda(caraDeFundo, w, h);
     for (let i = 0; i < n; i++) cercado[i] = caraDeFundo[i] && !ligado[i] ? 1 : 0;
     marcarAreasPequenas(cercado, w, h, Math.max(400, n * 0.004));
-    tirarVaos(cercado, dist, w, h, Math.max(3, 1.5 * ajuste.ruido));
+    // O limite tem folga: o ajuste do fundo fica um pouco acima da média (para não ser puxado por sombras),
+    // e um vão tem a cor do fundo mais o ruído. Um pedaço claro do objeto fica bem acima disso.
+    tirarVaos(cercado, dist, pareceSombra, w, h, Math.max(4, 2.5 * ajuste.ruido));
   }
 
   // Miolo do objeto: onde o modelo tem certeza E há objeto em toda a volta. Um fio de cabelo ou um pelo
@@ -667,14 +765,20 @@ export async function recortarComIA(bytes: Buffer, opcoes: OpcoesRecorte = {}): 
     saida[i * 4 + 3] = Math.round(a * 255);
   }
 
-  // Sombra mantida: preta semitransparente por baixo do objeto.
+  // Sombra mantida, por baixo do objeto, com a cor dela: uma camada semitransparente que, sobre o fundo
+  // original, devolve exatamente o fundo sombreado (sobre outro fundo, escurece no mesmo tom).
   if (opcoes.manterSombra && ajuste) {
     for (let i = 0; i < n; i++) {
-      const s = Math.min(0.9, sombra[i]);
+      const luzSombreada = 0.299 * fundo[0][i] + 0.587 * fundo[1][i] + 0.114 * fundo[2][i];
+      const luzClara = 0.299 * fundoClaro[0][i] + 0.587 * fundoClaro[1][i] + 0.114 * fundoClaro[2][i];
+      const s = Math.min(0.95, 1 - luzSombreada / Math.max(1, luzClara));
       if (s <= 0.01) continue;
       const a = alfa[i];
       const total = a + s * (1 - a);
-      for (let ch = 0; ch < 3; ch++) saida[i * 4 + ch] = Math.round((saida[i * 4 + ch] * a) / total);
+      for (let ch = 0; ch < 3; ch++) {
+        const tom = Math.min(255, Math.max(0, (fundo[ch][i] - (1 - s) * fundoClaro[ch][i]) / s));
+        saida[i * 4 + ch] = Math.round((saida[i * 4 + ch] * a + tom * s * (1 - a)) / total);
+      }
       saida[i * 4 + 3] = Math.round(total * 255);
     }
   }
