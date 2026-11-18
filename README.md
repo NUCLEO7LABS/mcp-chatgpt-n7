@@ -130,10 +130,11 @@ node empacotar.mjs        # gera o .exe, o .cmd e o pacote de atualização em s
 - **Código:** `src/index.ts` (servidor e ferramentas), `src/recorte.ts` (recorte de fundo), `src/arte.ts` (HTML → PNG), `src/marca.ts` (kits de marca), `src/atualizacao.ts` (atualização automática).
 - **Instalador:** `instalador/instalador.nsi` (o .exe, NSIS 3), `iniciar.ps1` e `interface/index.html` (a janela), `instalar.ps1` (as etapas), `registrar.cjs` (liga no Claude).
 - **Ver a janela do instalador sem instalar:** `node ferramentas/mock-interface.mjs` e abra `http://127.0.0.1:8765/`.
-- **Publicar uma versão:** aumente `version` no `package.json` e `VERSAO` em `src/index.ts`, rode o build e o `empacotar.mjs` e crie a versão no GitHub com os arquivos de `saida/`. Os PCs instalados se atualizam sozinhos:
+- **Publicar uma versão:** aumente `version` no `package.json` (e no `package-lock.json`) e `VERSAO` em `src/index.ts`, escreva as notas em `docs/notas/vX.Y.Z.md` e envie a etiqueta. O GitHub Actions (`.github/workflows/publicar.yml`) compila, gera o instalador e o pacote de atualização e cria a versão; os PCs instalados se atualizam sozinhos:
 
 ```bash
-gh release create v$(node -p "require('./package.json').version") saida/Instalar-ClauGPT-MCP.exe saida/Instalar-ClauGPT-MCP.cmd saida/clauGPT-mcp.json saida/clauGPT-mcp-*.tar.gz saida/clauGPT-mcp-*.tar.gz.sha256 --title "ClauGPT MCP $(node -p "require('./package.json').version")" --notes "O que mudou nesta versão"
+git tag v1.10.1
+git push origin v1.10.1
 ```
 
 O guia técnico completo (variáveis, recorte, kits de marca, formatos, como o instalador funciona) está em [docs/TECNICO.md](docs/TECNICO.md).
