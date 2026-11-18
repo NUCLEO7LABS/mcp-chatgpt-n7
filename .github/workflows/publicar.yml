@@ -1,55 +1,71 @@
-# Publica uma versão do ClauGPT MCP quando uma etiqueta vX.Y.Z é enviada.
-# Compila o servidor, gera o instalador (.exe e .cmd) e o pacote da atualização automática, e cria a
-# versão no GitHub com esses arquivos. Os PCs instalados se atualizam sozinhos a partir dela.
+# Publica uma versão do ClauGPT MCP no GitHub.
+# A cada envio para a main (ou à mão, na aba Actions), confere se a versão do package.json já foi
+# publicada; se não foi, compila o servidor, gera o instalador (.exe e .cmd) e o pacote da atualização
+# automática e cria a versão vX.Y.Z com esses arquivos. Os PCs instalados se atualizam sozinhos a partir dela.
 # As notas da versão vêm de docs/notas/vX.Y.Z.md (se não houver, o GitHub monta a partir dos commits).
 name: Publicar versão
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: publicar
+  cancel-in-progress: false
+
 jobs:
   publicar:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
 
+      - name: Versão a publicar
+        id: versao
+        run: |
+          versao="$(node -p "require('./package.json').version")"
+          echo "etiqueta=v$versao" >> "$GITHUB_OUTPUT"
+          if gh release view "v$versao" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "A v$versao já está publicada: nada a fazer."
+            echo "publicar=nao" >> "$GITHUB_OUTPUT"
+          else
+            grep -q "const VERSAO = \"$versao\";" src/index.ts || { echo "VERSAO em src/index.ts não é $versao"; exit 1; }
+            echo "publicar=sim" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/setup-node@v4
+        if: steps.versao.outputs.publicar == 'sim'
         with:
           node-version: 22
 
       - name: Ferramentas do instalador (NSIS e zip)
+        if: steps.versao.outputs.publicar == 'sim'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq nsis zip
 
       - name: Bibliotecas
+        if: steps.versao.outputs.publicar == 'sim'
         # --ignore-scripts: para compilar não é preciso o download extra do onnxruntime (GPU).
         run: npm ci --ignore-scripts --no-audit --no-fund
 
-      - name: Confere se a etiqueta bate com a versão do código
-        run: |
-          versao="$(node -p "require('./package.json').version")"
-          test "v$versao" = "$GITHUB_REF_NAME" || { echo "package.json diz $versao, a etiqueta é $GITHUB_REF_NAME"; exit 1; }
-          grep -q "const VERSAO = \"$versao\";" src/index.ts || { echo "VERSAO em src/index.ts não é $versao"; exit 1; }
-
-      - name: Compila
-        run: npm run build
-
-      - name: Gera o instalador e o pacote de atualização
-        run: node empacotar.mjs
+      - name: Compila e gera o instalador e o pacote de atualização
+        if: steps.versao.outputs.publicar == 'sim'
+        run: npm run build && node empacotar.mjs
 
       - name: Cria a versão no GitHub
-        env:
-          GH_TOKEN: ${{ github.token }}
+        if: steps.versao.outputs.publicar == 'sim'
         run: |
-          notas="docs/notas/$GITHUB_REF_NAME.md"
+          etiqueta="${{ steps.versao.outputs.etiqueta }}"
+          notas="docs/notas/$etiqueta.md"
           if [ -f "$notas" ]; then opcao=(--notes-file "$notas"); else opcao=(--generate-notes); fi
-          gh release create "$GITHUB_REF_NAME" \
+          gh release create "$etiqueta" \
             saida/Instalar-ClauGPT-MCP.exe \
             saida/Instalar-ClauGPT-MCP.cmd \
             saida/clauGPT-mcp.json \
             saida/clauGPT-mcp-*.tar.gz \
             saida/clauGPT-mcp-*.tar.gz.sha256 \
-            --title "ClauGPT MCP ${GITHUB_REF_NAME#v}" "${opcao[@]}"
+            --target "$GITHUB_SHA" --title "ClauGPT MCP ${etiqueta#v}" "${opcao[@]}"
