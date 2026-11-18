@@ -62,7 +62,7 @@ Medido contra o recorte perfeito em centenas de casos de teste (ícones 3D, vidr
 | Memória por recorte | ~7,5 GB | **~1,1 GB** |
 | Tempo por recorte | ~14 s | **~3 s** |
 | Cabelo: pixels errados | 2,3 a 3,8% | **menos de 0,01%** |
-| Sombra colorida: pixels errados | 0,8% | **0,07%** |
+| Sombra colorida: pixels errados | 0,8% | **0,02%** |
 
 ## Como funciona
 
