@@ -6,9 +6,10 @@
   <a href="https://github.com/branding7agencia/mcp-chatgpt-n7/releases/latest/download/Instalar-ClauGPT-MCP.exe"><img src="https://img.shields.io/badge/Baixar-Instalar--ClauGPT--MCP.exe-19e3b1?style=for-the-badge&labelColor=0a0e12" alt="Baixar o instalador"></a>
   <a href="https://github.com/branding7agencia/mcp-chatgpt-n7/releases/latest"><img src="https://img.shields.io/github/v/release/branding7agencia/mcp-chatgpt-n7?style=for-the-badge&label=vers%C3%A3o&color=ff7a1a&labelColor=0a0e12" alt="Versão mais nova"></a>
   <img src="https://img.shields.io/badge/Windows-10%20e%2011-5b6573?style=for-the-badge&labelColor=0a0e12" alt="Windows 10 e 11">
+  <a href="#no-linux"><img src="https://img.shields.io/badge/Linux-x64%20e%20ARM-5b6573?style=for-the-badge&labelColor=0a0e12" alt="Linux"></a>
 </p>
 
-<p align="center"><b>Sua conta do ChatGPT, dentro do Claude Desktop.</b><br>
+<p align="center"><b>Sua conta do ChatGPT, dentro do Claude Desktop e do Claude Code.</b><br>
 Imagens e ícones 3D do GPT, recorte de fundo de verdade, artes montadas com a marca certa e uma segunda opinião do ChatGPT, sem chave de API e sem sair do Claude.</p>
 
 ---
@@ -44,6 +45,20 @@ Gera com o ChatGPT um ícone 3D de um foguete, sem fundo
 Faz um post e um story da Ninno para o Dia dos Pais, com a foto de um hambúrguer
 Tira o fundo de Downloads\produto.jpg e mantém a sombra no chão
 ```
+
+## No Linux
+
+Um comando no terminal, sem senha de administrador (tudo fica na sua pasta de usuário):
+
+```bash
+curl -fsSL https://github.com/branding7agencia/mcp-chatgpt-n7/releases/latest/download/instalar-linux.sh | bash
+```
+
+Ele instala o Node.js (se o do sistema for antigo), o Codex CLI, o servidor e o modelo de recorte, liga no **Claude Code** e, se houver, no Claude Desktop (as versões não oficiais para Linux, que usam `~/.config/Claude`), faz o login no ChatGPT por código e testa com uma pergunta de verdade. Pode rodar de novo quando quiser: atualiza o que mudou e pula o resto.
+
+- **Precisa de:** `curl` e `tar` (vêm em quase todo Linux), Ubuntu 20.04, Debian 11, Fedora 36 ou mais novo (x64 ou ARM). Para montar artes, o Google Chrome ou o Chromium.
+- **Fica em:** `~/.local/share/clauGPT-mcp`; as imagens vão para a sua pasta de Imagens (`~/Imagens/ChatGPT`).
+- **Desinstalar:** o mesmo comando com `| bash -s -- --remover`.
 
 ## Recorte de fundo
 
@@ -111,11 +126,13 @@ O servidor confere o GitHub pouco depois de abrir e a cada 12 horas, pelo link f
 
 **Meus arquivos vão para algum lugar?** O recorte e a montagem das artes rodam no seu computador. Para o ChatGPT só vai o que você pede para ele gerar ou analisar.
 
-**Funciona no navegador ou no celular?** Não: precisa do Claude Desktop no Windows.
+**Funciona no navegador ou no celular?** Não: precisa do Claude Desktop no Windows, ou do Claude Code no Linux.
 
-**Como desinstalo?** Feche o Claude e vá em *Configurações → Aplicativos → ClauGPT MCP → Desinstalar*. Imagens e kits de marca ficam.
+**Funciona no Mac?** Ainda não tem instalador para Mac.
 
-**Deu erro na instalação.** A janela mostra a etapa; quase sempre basta *Tentar de novo*. O registro fica em `%LOCALAPPDATA%\mcp-chatgpt\instalacao.log`: mande para o Claude que ele diz o que fazer.
+**Como desinstalo?** No Windows, feche o Claude e vá em *Configurações → Aplicativos → ClauGPT MCP → Desinstalar*. No Linux, rode o comando de instalação com `| bash -s -- --remover`. Imagens e kits de marca ficam.
+
+**Deu erro na instalação.** A janela mostra a etapa; quase sempre basta *Tentar de novo*. O registro fica em `%LOCALAPPDATA%\mcp-chatgpt\instalacao.log` (no Linux, `~/.local/share/clauGPT-mcp/instalacao.log`): mande para o Claude que ele diz o que fazer.
 
 </details>
 
@@ -124,11 +141,11 @@ O servidor confere o GitHub pouco depois de abrir e a cada 12 horas, pelo link f
 ```bash
 npm install
 npm run build
-node empacotar.mjs        # gera o .exe, o .cmd e o pacote de atualização em saida/
+node empacotar.mjs        # gera o .exe, o .cmd, o instalar-linux.sh e o pacote de atualização em saida/
 ```
 
 - **Código:** `src/index.ts` (servidor e ferramentas), `src/recorte.ts` (recorte de fundo), `src/arte.ts` (HTML → PNG), `src/marca.ts` (kits de marca), `src/atualizacao.ts` (atualização automática).
-- **Instalador:** `instalador/instalador.nsi` (o .exe, NSIS 3), `iniciar.ps1` e `interface/index.html` (a janela), `instalar.ps1` (as etapas), `registrar.cjs` (liga no Claude).
+- **Instalador:** `instalador/instalador.nsi` (o .exe, NSIS 3), `iniciar.ps1` e `interface/index.html` (a janela), `instalar.ps1` (as etapas), `registrar.cjs` (liga no Claude), `instalar-linux.sh` (o instalador do Linux).
 - **Ver a janela do instalador sem instalar:** `node ferramentas/mock-interface.mjs` e abra `http://127.0.0.1:8765/`.
 - **Publicar uma versão:** aumente `version` no `package.json` (e no `package-lock.json`) e `VERSAO` em `src/index.ts`, escreva as notas em `docs/notas/vX.Y.Z.md` e envie para a `main`. O GitHub Actions (`.github/workflows/publicar.yml`) vê que a versão ainda não foi publicada, compila, gera o instalador e o pacote de atualização e cria a versão. Os PCs instalados se atualizam sozinhos em até 12 horas.
 

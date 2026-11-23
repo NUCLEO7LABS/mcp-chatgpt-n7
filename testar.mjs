@@ -14,7 +14,8 @@ if (!cfg) {
 
 // Ambiente mínimo, sem o PATH deste terminal, como o Claude faz ao abrir o servidor.
 const env = { ...cfg.env };
-for (const k of ["SystemRoot", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP"]) if (process.env[k]) env[k] = process.env[k];
+// (Windows: SystemRoot, USERPROFILE...; Linux e Mac: HOME e as pastas XDG.)
+for (const k of ["SystemRoot", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "HOME", "USER", "LANG", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR"]) if (process.env[k]) env[k] = process.env[k];
 
 const client = new Client({ name: "testar", version: "1.0.0" });
 await client.connect(new StdioClientTransport({ command: cfg.command, args: cfg.args, env, stderr: "ignore" }));

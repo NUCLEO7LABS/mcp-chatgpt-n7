@@ -1,34 +1,66 @@
 // Monta artes a partir de HTML/CSS: o Claude faz o layout (texto exato, fontes, logo real, cores da marca)
-// e um navegador sem janela (Chrome ou Edge já instalados no PC) tira a "foto" no tamanho exato.
+// e um navegador sem janela (Chrome, Edge, Chromium ou Brave já instalados no PC) tira a "foto" no tamanho exato.
 
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { extname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import puppeteer, { type Browser } from "puppeteer-core";
 
+function candidatosDoSistema(): string[] {
+  if (process.platform === "win32") {
+    const pf = process.env.ProgramFiles ?? "C:\\Program Files";
+    const pf86 = process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)";
+    const local = process.env.LOCALAPPDATA ?? "";
+    return [
+      join(pf86, "Microsoft", "Edge", "Application", "msedge.exe"),
+      join(pf, "Microsoft", "Edge", "Application", "msedge.exe"),
+      join(pf, "Google", "Chrome", "Application", "chrome.exe"),
+      join(pf86, "Google", "Chrome", "Application", "chrome.exe"),
+      join(local, "Google", "Chrome", "Application", "chrome.exe"),
+      join(pf, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
+    ];
+  }
+  if (process.platform === "darwin") {
+    return [
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+      "/Applications/Chromium.app/Contents/MacOS/Chromium",
+      "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    ];
+  }
+  // Linux: os de pacote primeiro; o Chromium do Snap por último (ele não enxerga a /tmp).
+  return [
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/google-chrome",
+    "/opt/google/chrome/chrome",
+    "/usr/bin/microsoft-edge-stable",
+    "/usr/bin/microsoft-edge",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/brave-browser",
+    "/var/lib/flatpak/exports/bin/com.google.Chrome",
+    "/snap/bin/chromium",
+  ];
+}
+
 export function acharNavegador(): string {
-  const pf = process.env.ProgramFiles ?? "C:\\Program Files";
-  const pf86 = process.env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)";
-  const local = process.env.LOCALAPPDATA ?? "";
-  const candidatos = [
-    process.env.CHATGPT_NAVEGADOR,
-    join(pf86, "Microsoft", "Edge", "Application", "msedge.exe"),
-    join(pf, "Microsoft", "Edge", "Application", "msedge.exe"),
-    join(pf, "Google", "Chrome", "Application", "chrome.exe"),
-    join(pf86, "Google", "Chrome", "Application", "chrome.exe"),
-    join(local, "Google", "Chrome", "Application", "chrome.exe"),
-    join(pf, "BraveSoftware", "Brave-Browser", "Application", "brave.exe"),
-  ].filter((c): c is string => Boolean(c));
+  const candidatos = [process.env.CHATGPT_NAVEGADOR, ...candidatosDoSistema()].filter((c): c is string => Boolean(c));
   const achado = candidatos.find((c) => existsSync(c));
   if (!achado) {
     throw new Error(
-      "Não achei Chrome nem Edge neste PC para montar a arte. Instale o Google Chrome ou o Microsoft Edge " +
-        "(ou aponte a variável CHATGPT_NAVEGADOR para o executável de um deles).",
+      "Não achei Chrome, Edge, Chromium nem Brave neste computador para montar a arte. Instale o Google Chrome " +
+        "ou o Chromium (ou aponte a variável CHATGPT_NAVEGADOR para o executável de um deles).",
     );
   }
   return achado;
+}
+
+// O Chromium do Snap tem uma /tmp só dele e não lê pastas ocultas: a página da arte vai para uma pasta
+// comum da casa da pessoa.
+function pastaTemporaria(): string {
+  return acharNavegador().startsWith("/snap/") ? join(homedir(), "clauGPT-temporario") : tmpdir();
 }
 
 let navegador: Promise<Browser> | undefined;
@@ -39,7 +71,13 @@ function abrirNavegador(): Promise<Browser> {
     .launch({
       executablePath: acharNavegador(),
       headless: true,
-      args: ["--allow-file-access-from-files", "--font-render-hinting=none", "--hide-scrollbars"],
+      args: [
+        "--allow-file-access-from-files",
+        "--font-render-hinting=none",
+        "--hide-scrollbars",
+        // No Linux, o Chrome se recusa a abrir como root (servidor, container) sem isto.
+        ...(process.getuid?.() === 0 ? ["--no-sandbox"] : []),
+      ],
     })
     .then((b) => {
       b.on("disconnected", () => (navegador = undefined));
@@ -88,12 +126,13 @@ const MIME: Record<string, string> = {
 };
 
 async function embutirArquivos(html: string): Promise<string> {
-  const padrao = /(["'(])((?:file:\/\/\/)?[A-Za-z]:[\\/][^"')]*?\.(png|jpe?g|webp|gif|svg|ttf|otf|woff2?))(?=["')])/gi;
+  // Caminhos do Windows (C:\...), do Linux e do Mac (/home/..., /Users/...) e file:/// de qualquer um deles.
+  const padrao = /(["'(])((?:file:\/\/)?(?:\/?[A-Za-z]:[\\/]|\/(?!\/))[^"')]*?\.(png|jpe?g|webp|gif|svg|ttf|otf|woff2?))(?=["')])/gi;
   const caminhos = new Set<string>();
   for (const m of html.matchAll(padrao)) caminhos.add(m[2]);
   const dados = new Map<string, string>();
   for (const bruto of caminhos) {
-    const caminho = bruto.startsWith("file:") ? decodeURIComponent(new URL(bruto).pathname.slice(1)) : bruto;
+    const caminho = bruto.startsWith("file:") ? fileURLToPath(bruto) : bruto;
     try {
       const ext = extname(caminho).toLowerCase();
       dados.set(bruto, `data:${MIME[ext] ?? "application/octet-stream"};base64,${(await readFile(caminho)).toString("base64")}`);
@@ -211,7 +250,9 @@ export async function renderizarHtml(
   formato?: string,
 ): Promise<Renderizacao> {
   const inicio = Date.now();
-  const pasta = await mkdtemp(join(tmpdir(), "mcp-arte-"));
+  const base = pastaTemporaria();
+  await mkdir(base, { recursive: true });
+  const pasta = await mkdtemp(join(base, "mcp-arte-"));
   const arquivo = join(pasta, "arte.html");
   await writeFile(arquivo, documentoCompleto(converterCaminhos(html), largura, altura, formato), "utf8");
 

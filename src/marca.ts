@@ -8,11 +8,11 @@
 //     referencias\    artes que mostram o estilo da marca
 
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { extname, join } from "node:path";
 import sharp from "sharp";
+import { pastaDeImagens } from "./sistema.js";
 
-export const PASTA_MARCAS = process.env.CHATGPT_MARCAS_DIR ?? join(homedir(), "Pictures", "Marcas");
+export const PASTA_MARCAS = process.env.CHATGPT_MARCAS_DIR ?? join(pastaDeImagens(), "Marcas");
 
 const SUBPASTAS = ["logos", "fontes", "referencias"] as const;
 const EXT_IMAGEM = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"]);

@@ -16,9 +16,10 @@ import { z } from "zod";
 import { MODELO_RECORTE, type OpcoesRecorte, recortarComIA, recorteDisponivel } from "./recorte.js";
 import { acharNavegador, montarEditavel, renderizarHtml } from "./arte.js";
 import { acharMarca, cssDasFontes, lerKit, listarMarcas, PASTA_MARCAS, salvarMarca } from "./marca.js";
+import { pastaDeImagens } from "./sistema.js";
 import { agendarAtualizacoes, estadoAtualizacao, tirarAviso, verificarAtualizacao } from "./atualizacao.js";
 
-const VERSAO = "1.10.0";
+const VERSAO = "1.11.0";
 const CODEX_BIN = process.env.CODEX_BIN ?? "codex";
 const TIMEOUT_MS = Number(process.env.CHATGPT_TIMEOUT_MS ?? 5 * 60 * 1000);
 
@@ -28,7 +29,7 @@ const FORMATOS_IMAGEM = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
 // e o histórico de cada conversa em <CODEX_HOME>/sessions/**/rollout-...-<id>.jsonl.
 const CODEX_HOME = process.env.CODEX_HOME ?? join(homedir(), ".codex");
 // Para onde copiamos as imagens geradas (padrão: Imagens\ChatGPT).
-const PASTA_IMAGENS = process.env.CHATGPT_IMAGENS_DIR ?? join(homedir(), "Pictures", "ChatGPT");
+const PASTA_IMAGENS = process.env.CHATGPT_IMAGENS_DIR ?? join(pastaDeImagens(), "ChatGPT");
 // Lado maior da prévia devolvida ao Claude (o arquivo salvo fica em tamanho cheio).
 const LADO_PREVIA = Number(process.env.CHATGPT_LADO_PREVIA ?? 768);
 const MAX_VARIACOES = 4;
@@ -48,9 +49,9 @@ function argumentoShell(arg: string): string {
   return `"${arg.replace(/"/g, '""')}"`;
 }
 
-// O codex.cmd chama "node" pelo PATH. O Claude pode ter sido aberto antes do Node ser instalado
-// (e aí não o acha), então colocamos na frente a pasta do Node que está rodando este servidor
-// e a pasta dos programas globais do npm.
+// O Codex chama "node" pelo PATH (no Windows, o codex.cmd; no Linux, o #!/usr/bin/env node). O Claude pode
+// ter sido aberto antes do Node ser instalado, ou o Node pode estar numa pasta só do instalador, então
+// colocamos na frente a pasta do Node que está rodando este servidor e a pasta dos programas globais do npm.
 function ambienteComNode(): NodeJS.ProcessEnv {
   const env = { ...process.env };
   const chave = Object.keys(env).find((k) => k.toLowerCase() === "path") ?? "PATH";
@@ -63,8 +64,10 @@ function ambienteComNode(): NodeJS.ProcessEnv {
 // Codex rodando agora, para encerrar junto com o servidor.
 const filhos = new Set<ChildProcess>();
 
-// No Windows o Codex roda dentro de um cmd.exe (shell: true): kill() fecharia só o cmd, e o Codex
-// seguiria rodando escondido, gastando o limite do ChatGPT. O taskkill /T leva a árvore inteira.
+// O Codex abre outros processos (no Windows, de dentro de um cmd.exe; no Linux, o binário dele de dentro do
+// script do npm): kill() fecharia só o primeiro, e o resto seguiria rodando escondido, gastando o limite do
+// ChatGPT. No Windows, o taskkill /T leva a árvore inteira; no Linux e no Mac, o Codex roda num grupo de
+// processos próprio (detached) e o grupo todo é encerrado.
 function encerrar(filho: ChildProcess) {
   if (filho.exitCode !== null || filho.signalCode !== null) return;
   if (process.platform === "win32" && filho.pid) {
@@ -75,8 +78,19 @@ function encerrar(filho: ChildProcess) {
       // sem taskkill: tenta o kill comum
     }
   }
+  if (process.platform !== "win32" && filho.pid) {
+    try {
+      process.kill(-filho.pid, "SIGTERM");
+      return;
+    } catch {
+      // grupo já fechado: tenta o kill comum
+    }
+  }
   filho.kill();
 }
+
+// Fora do Windows, cada Codex num grupo de processos próprio (para o encerrar levar tudo).
+const GRUPO_PROPRIO = process.platform !== "win32";
 
 // Quando o Claude fecha o servidor, nada do que ele começou deve continuar rodando.
 function encerrarTodos() {
@@ -116,6 +130,7 @@ function rodarCodex(args: string[], ms = 20_000): Promise<{ ok: boolean; saida: 
         env: ambienteComNode(),
         shell: process.platform === "win32",
         windowsHide: true,
+        detached: GRUPO_PROPRIO,
       });
     } catch (e) {
       return ok({ ok: false, saida: (e as Error).message });
@@ -193,6 +208,7 @@ async function perguntarAoCodex(prompt: string, opcoes: OpcoesCodex = {}): Promi
         env: ambienteComNode(),
         shell: process.platform === "win32", // no Windows o codex é um .cmd
         windowsHide: true,
+        detached: GRUPO_PROPRIO,
       });
       filhos.add(filho);
       let stdout = "";

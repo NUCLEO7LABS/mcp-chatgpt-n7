@@ -119,6 +119,26 @@ Pode rodar de novo quando quiser: depois de mover a pasta, para atualizar, ou se
 
 **Antes do primeiro login por código**, a opção *login com código de dispositivo* precisa estar ativa em chatgpt.com → Configurações → Segurança. Ela vale para a conta, então basta ativar uma vez.
 
+## Instalar no Linux
+
+```bash
+curl -fsSL https://github.com/branding7agencia/mcp-chatgpt-n7/releases/latest/download/instalar-linux.sh | bash
+```
+
+`instalar-linux.sh`, publicado solto em cada versão. Roda sem `sudo` e sem perguntas (funciona pelo `curl | bash`; o login lê o teclado de `/dev/tty`). Tudo fica em `${XDG_DATA_HOME:-~/.local/share}/clauGPT-mcp` (ou em `CLAUGPT_DIR`), com o registro em `instalacao.log`:
+
+| Passo | O quê |
+|---|---|
+| 1 | Usa o Node.js do sistema se for 20 ou mais novo; senão baixa o Node 22 oficial (x64 ou arm64, com a impressão digital conferida) para `node/` |
+| 2 | Usa o `codex` do sistema, se houver; senão instala o `@openai/codex` na versão testada em `codex/` |
+| 3 | Baixa o pacote da versão mais nova (o mesmo da atualização automática, já compilado), confere o SHA-256 e roda `npm ci --omit=dev` em `app/` |
+| 4 | Baixa o modelo de recorte para `~/.mcp-chatgpt/modelos` (SHA-256 conferido) |
+| 5 | `registrar.cjs`: Claude Code (`~/.claude.json`) e, se a pasta existir, o Claude Desktop em `${XDG_CONFIG_HOME:-~/.config}/Claude` |
+| 6 | `codex login --device-auth`, se ainda não estiver logado |
+| 7 | `testar.mjs` |
+
+Opções: `--remover` (tira do Claude e apaga a pasta), `CLAUGPT_PACOTE=<.tar.gz local>` (testar um pacote antes de publicar), `CLAUGPT_SEM_LOGIN=1` (pula login e teste). No Linux, as imagens vão para a pasta de Imagens do sistema (`XDG_PICTURES_DIR`, normalmente `~/Imagens`), o navegador das artes é procurado entre Chrome, Edge, Chromium (inclusive snap e flatpak) e Brave, ou vem de `CHATGPT_NAVEGADOR`, e cada Codex roda num grupo de processos próprio, para o encerramento levar junto o que ele abriu.
+
 ## Instalação manual
 
 ```powershell
@@ -251,8 +271,8 @@ Sem o modelo, o servidor continua funcionando com o recorte simples de fundo lis
 
 `src/atualizacao.ts`. O servidor lê `https://github.com/branding7agencia/mcp-chatgpt-n7/releases/latest/download/clauGPT-mcp.json` 20 segundos depois de abrir e a cada 12 horas. Esse arquivo (gerado pelo `empacotar.mjs`) traz a versão, o nome do pacote e a impressão digital SHA-256.
 
-- Versão nova com o mesmo `package-lock.json` (fora a versão do projeto): baixa `clauGPT-mcp-<versão>.tar.gz`, confere a impressão digital, extrai com o `tar` do Windows, guarda a versão atual em `atualizacao\anterior-<versão>` e copia a nova por cima (sem tocar em `node_modules`). Vale a partir do próximo início do servidor; o Claude recebe um aviso na resposta seguinte de uma ferramenta.
-- Versão nova com bibliotecas diferentes: não troca nada (no Windows os arquivos nativos ficam presos com o servidor aberto) e avisa com o link do `Instalar-ClauGPT-MCP.exe` da versão.
+- Versão nova com o mesmo `package-lock.json` (fora a versão do projeto): baixa `clauGPT-mcp-<versão>.tar.gz`, confere a impressão digital, extrai com o `tar` (no Windows, o que vem com ele), guarda a versão atual em `atualizacao\anterior-<versão>` e copia a nova por cima (sem tocar em `node_modules`). Vale a partir do próximo início do servidor; o Claude recebe um aviso na resposta seguinte de uma ferramenta.
+- Versão nova com bibliotecas diferentes: não troca nada (no Windows os arquivos nativos ficam presos com o servidor aberto) e avisa com o link do `Instalar-ClauGPT-MCP.exe` da versão (no Linux, com o comando do `instalar-linux.sh`).
 - Para voltar atrás à mão: copie o conteúdo de `atualizacao\anterior-<versão>` por cima da pasta do servidor.
 
 ## Variáveis opcionais
@@ -263,6 +283,7 @@ Sem o modelo, o servidor continua funcionando com o recorte simples de fundo lis
 | `CHATGPT_TIMEOUT_MS` | Tempo máximo de espera (padrão: 300000 = 5 min) |
 | `CHATGPT_IMAGENS_DIR` | Pasta padrão das imagens geradas (padrão: `Imagens\ChatGPT`) |
 | `CHATGPT_LADO_PREVIA` | Lado maior da prévia em pixels (padrão: 768) |
+| `CHATGPT_NAVEGADOR` | Caminho do Chrome/Edge/Chromium usado para montar as artes |
 | `CHATGPT_ATUALIZACAO` | `0` desliga a atualização automática |
 | `CHATGPT_ATUALIZACAO_REPO` | Repositório de onde vêm as versões (padrão: `branding7agencia/mcp-chatgpt-n7`) |
 | `CHATGPT_MODELO_RECORTE` | Caminho do modelo de recorte .onnx (padrão: `%USERPROFILE%\.mcp-chatgpt\modelos\isnet-general-use.onnx`) |

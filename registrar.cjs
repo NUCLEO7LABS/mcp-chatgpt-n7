@@ -1,6 +1,7 @@
-// Registra este servidor como "chatgpt" no Claude deste PC:
-//  - Claude Code (aba Code): ~/.claude.json
+// Registra este servidor como "chatgpt" no Claude deste computador (Windows, Linux ou Mac):
+//  - Claude Code (aba Code no Windows; o claude no terminal no Linux): ~/.claude.json
 //  - Claude Desktop (chat comum): claude_desktop_config.json, onde quer que o app o guarde
+// O Codex é o de CODEX_BIN, se definido (o instalador do Linux define); senão, o do npm global.
 // Guarda um backup de cada arquivo antes da primeira alteração. Uso: node registrar.cjs
 // Com --remover, tira o servidor desses arquivos (o desinstalador usa).
 const fs = require("fs");
@@ -10,7 +11,17 @@ const os = require("os");
 const servidor = path.join(__dirname, "dist", "index.js");
 const appdata = process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
 const localappdata = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
-const codex = path.join(appdata, "npm", "codex.cmd");
+const windows = process.platform === "win32";
+function acharCodex() {
+  if (process.env.CODEX_BIN) return process.env.CODEX_BIN;
+  if (windows) return path.join(appdata, "npm", "codex.cmd");
+  try {
+    return require("child_process").execFileSync("sh", ["-c", "command -v codex"], { encoding: "utf8" }).trim() || "codex";
+  } catch {
+    return "codex";
+  }
+}
+const codex = acharCodex();
 const remover = process.argv.includes("--remover");
 
 if (!remover && !fs.existsSync(servidor)) {
@@ -76,8 +87,17 @@ function subpastas(pasta, prefixo) {
   }
 }
 
-// Onde o Claude Desktop pode guardar a configuração, conforme o jeito que foi instalado.
+// Onde o Claude Desktop pode guardar a configuração, conforme o sistema e o jeito que foi instalado.
 function configsDoDesktop() {
+  if (!windows) {
+    const pasta =
+      process.platform === "darwin"
+        ? path.join(os.homedir(), "Library", "Application Support", "Claude")
+        : path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), "Claude");
+    const arquivo = path.join(pasta, "claude_desktop_config.json");
+    // Sem a pasta, o app não está instalado: não cria nada.
+    return fs.existsSync(pasta) ? [arquivo] : [];
+  }
   const candidatos = [
     // Versões novas do app (dados em AppData\Local\Claude-Data\claude_<id>)
     ...subpastas(path.join(localappdata, "Claude-Data"), "claude_").map((p) => path.join(p, "claude_desktop_config.json")),
@@ -106,7 +126,8 @@ if (remover) {
 }
 
 // Claude Code
-if (registrar(cfgCode, { type: "stdio", ...entradaPara(540000) })) console.log(`  Claude Code (aba Code): registrado em ${cfgCode}`);
+const nomeCode = windows ? "Claude Code (aba Code)" : "Claude Code";
+if (registrar(cfgCode, { type: "stdio", ...entradaPara(540000) })) console.log(`  ${nomeCode}: registrado em ${cfgCode}`);
 else ok = false;
 
 // Claude Desktop

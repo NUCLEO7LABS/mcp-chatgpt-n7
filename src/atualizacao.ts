@@ -26,7 +26,7 @@ const INTERVALO_MS = 12 * 60 * 60 * 1000;
 export const PROJETO = dirname(dirname(fileURLToPath(import.meta.url)));
 const PASTA = join(PROJETO, "atualizacao");
 // O que a atualização substitui. node_modules, o registro e esta pasta ficam.
-const ITENS = ["dist", "src", "interface", "package.json", "package-lock.json", "tsconfig.json", "iniciar.ps1", "instalar.ps1", "registrar.cjs", "testar.mjs", "README.md"];
+const ITENS = ["dist", "src", "interface", "package.json", "package-lock.json", "tsconfig.json", "iniciar.ps1", "instalar.ps1", "registrar.cjs", "testar.mjs", "instalar-linux.sh", "README.md"];
 
 export type EstadoAtualizacao = {
   verificadoEm?: string;
@@ -98,7 +98,11 @@ async function procurar(versaoAtual: string): Promise<EstadoAtualizacao> {
   if (comparar(ultima, versaoAtual) <= 0) return { verificadoEm: agora, ultima, situacao: "em dia" };
 
   const arquivoDaVersao = (nome: string) => `${GITHUB}/${REPO}/releases/download/v${ultima}/${encodeURIComponent(nome)}`;
-  const instalador = arquivoDaVersao(m.instalador ?? "Instalar-ClauGPT-MCP.exe");
+  // No Linux, o "instalador" é o comando do terminal que roda o instalar-linux.sh de novo.
+  const instalador =
+    process.platform === "linux"
+      ? `curl -fsSL ${GITHUB}/${REPO}/releases/latest/download/instalar-linux.sh | bash (num terminal, com o Claude fechado)`
+      : arquivoDaVersao(m.instalador ?? "Instalar-ClauGPT-MCP.exe");
   if (!m.pacote || !m.sha256) {
     return { verificadoEm: agora, ultima, situacao: "precisa do instalador", linkInstalador: instalador, detalhe: "a versão nova não tem pacote de atualização" };
   }
