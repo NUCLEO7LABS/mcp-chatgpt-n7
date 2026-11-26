@@ -17,7 +17,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const REPO = process.env.CHATGPT_ATUALIZACAO_REPO ?? "branding7agencia/mcp-chatgpt-n7";
+const REPO = process.env.CHATGPT_ATUALIZACAO_REPO ?? "NUCLEO7LABS/mcp-chatgpt-n7";
 const GITHUB = process.env.CHATGPT_ATUALIZACAO_BASE ?? "https://github.com"; // trocado só nos testes
 export const ATUALIZACAO_LIGADA = process.env.CHATGPT_ATUALIZACAO !== "0";
 const INTERVALO_MS = 12 * 60 * 60 * 1000;

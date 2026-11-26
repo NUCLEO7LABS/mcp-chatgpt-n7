@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Instalador do ClauGPT MCP para Linux.
 #
-#   curl -fsSL https://github.com/branding7agencia/mcp-chatgpt-n7/releases/latest/download/instalar-linux.sh | bash
+#   curl -fsSL https://github.com/NUCLEO7LABS/mcp-chatgpt-n7/releases/latest/download/instalar-linux.sh | bash
 #
 # Faz, sem pedir senha de administrador (tudo fica na pasta do usuário):
 #   1. Node.js (usa o do sistema, se for 20 ou mais novo; senão baixa um só para o ClauGPT)
@@ -21,7 +21,7 @@
 set -euo pipefail
 export npm_config_update_notifier=false
 
-REPO="branding7agencia/mcp-chatgpt-n7"
+REPO="NUCLEO7LABS/mcp-chatgpt-n7"
 VERSAO_CODEX="0.166.0"
 DIR="${CLAUGPT_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/clauGPT-mcp}"
 APP="$DIR/app"

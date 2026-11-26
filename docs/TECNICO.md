@@ -122,7 +122,7 @@ Pode rodar de novo quando quiser: depois de mover a pasta, para atualizar, ou se
 ## Instalar no Linux
 
 ```bash
-curl -fsSL https://github.com/branding7agencia/mcp-chatgpt-n7/releases/latest/download/instalar-linux.sh | bash
+curl -fsSL https://github.com/NUCLEO7LABS/mcp-chatgpt-n7/releases/latest/download/instalar-linux.sh | bash
 ```
 
 `instalar-linux.sh`, publicado solto em cada versão. Roda sem `sudo` e sem perguntas (funciona pelo `curl | bash`; o login lê o teclado de `/dev/tty`). Tudo fica em `${XDG_DATA_HOME:-~/.local/share}/clauGPT-mcp` (ou em `CLAUGPT_DIR`), com o registro em `instalacao.log`:
@@ -269,7 +269,7 @@ Sem o modelo, o servidor continua funcionando com o recorte simples de fundo lis
 
 ## Atualização automática
 
-`src/atualizacao.ts`. O servidor lê `https://github.com/branding7agencia/mcp-chatgpt-n7/releases/latest/download/clauGPT-mcp.json` 20 segundos depois de abrir e a cada 12 horas. Esse arquivo (gerado pelo `empacotar.mjs`) traz a versão, o nome do pacote e a impressão digital SHA-256.
+`src/atualizacao.ts`. O servidor lê `https://github.com/NUCLEO7LABS/mcp-chatgpt-n7/releases/latest/download/clauGPT-mcp.json` 20 segundos depois de abrir e a cada 12 horas. Esse arquivo (gerado pelo `empacotar.mjs`) traz a versão, o nome do pacote e a impressão digital SHA-256.
 
 - Versão nova com o mesmo `package-lock.json` (fora a versão do projeto): baixa `clauGPT-mcp-<versão>.tar.gz`, confere a impressão digital, extrai com o `tar` (no Windows, o que vem com ele), guarda a versão atual em `atualizacao\anterior-<versão>` e copia a nova por cima (sem tocar em `node_modules`). Vale a partir do próximo início do servidor; o Claude recebe um aviso na resposta seguinte de uma ferramenta.
 - Versão nova com bibliotecas diferentes: não troca nada (no Windows os arquivos nativos ficam presos com o servidor aberto) e avisa com o link do `Instalar-ClauGPT-MCP.exe` da versão (no Linux, com o comando do `instalar-linux.sh`).
@@ -287,7 +287,7 @@ Sem o modelo, o servidor continua funcionando com o recorte simples de fundo lis
 | `CHATGPT_LADO_PREVIA` | Lado maior da prévia em pixels (padrão: 768) |
 | `CHATGPT_NAVEGADOR` | Caminho do Chrome/Edge/Chromium usado para montar as artes |
 | `CHATGPT_ATUALIZACAO` | `0` desliga a atualização automática |
-| `CHATGPT_ATUALIZACAO_REPO` | Repositório de onde vêm as versões (padrão: `branding7agencia/mcp-chatgpt-n7`) |
+| `CHATGPT_ATUALIZACAO_REPO` | Repositório de onde vêm as versões (padrão: `NUCLEO7LABS/mcp-chatgpt-n7`) |
 | `CHATGPT_MODELO_RECORTE` | Caminho do modelo de recorte .onnx (padrão: `%USERPROFILE%\.mcp-chatgpt\modelos\isnet-general-use.onnx`) |
 
 ## Testar sem o Claude

@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/branding7agencia/mcp-chatgpt-n7/releases/latest/download/Instalar-ClauGPT-MCP.exe"><img src="https://img.shields.io/badge/Baixar-Instalar--ClauGPT--MCP.exe-19e3b1?style=for-the-badge&labelColor=0a0e12" alt="Baixar o instalador"></a>
-  <a href="https://github.com/branding7agencia/mcp-chatgpt-n7/releases/latest"><img src="https://img.shields.io/github/v/release/branding7agencia/mcp-chatgpt-n7?style=for-the-badge&label=vers%C3%A3o&color=ff7a1a&labelColor=0a0e12" alt="Versão mais nova"></a>
+  <a href="https://github.com/NUCLEO7LABS/mcp-chatgpt-n7/releases/latest/download/Instalar-ClauGPT-MCP.exe"><img src="https://img.shields.io/badge/Baixar-Instalar--ClauGPT--MCP.exe-19e3b1?style=for-the-badge&labelColor=0a0e12" alt="Baixar o instalador"></a>
+  <a href="https://github.com/NUCLEO7LABS/mcp-chatgpt-n7/releases/latest"><img src="https://img.shields.io/github/v/release/NUCLEO7LABS/mcp-chatgpt-n7?style=for-the-badge&label=vers%C3%A3o&color=ff7a1a&labelColor=0a0e12" alt="Versão mais nova"></a>
   <img src="https://img.shields.io/badge/Windows-10%20e%2011-5b6573?style=for-the-badge&labelColor=0a0e12" alt="Windows 10 e 11">
   <a href="#no-linux"><img src="https://img.shields.io/badge/Linux-x64%20e%20ARM-5b6573?style=for-the-badge&labelColor=0a0e12" alt="Linux"></a>
 </p>
@@ -29,7 +29,7 @@ Tudo pela sua assinatura do ChatGPT (Plus, Pro ou Team), pelo [Codex CLI](https:
 
 ## Instale em 5 minutos
 
-1. **[Baixe o instalador](https://github.com/branding7agencia/mcp-chatgpt-n7/releases/latest/download/Instalar-ClauGPT-MCP.exe)** e abra. Se o Windows avisar, clique em *Mais informações → Executar assim mesmo*.
+1. **[Baixe o instalador](https://github.com/NUCLEO7LABS/mcp-chatgpt-n7/releases/latest/download/Instalar-ClauGPT-MCP.exe)** e abra. Se o Windows avisar, clique em *Mais informações → Executar assim mesmo*.
 2. Clique em **Instalar**. A janela mostra cada etapa.
 3. No login, o site da OpenAI abre sozinho e o código já fica copiado: cole com **Ctrl+V** e clique em Continuar.
 4. Clique em **Reiniciar o Claude agora**. Pronto.
@@ -51,7 +51,7 @@ Tira o fundo de Downloads\produto.jpg e mantém a sombra no chão
 Um comando no terminal, sem senha de administrador (tudo fica na sua pasta de usuário):
 
 ```bash
-curl -fsSL https://github.com/branding7agencia/mcp-chatgpt-n7/releases/latest/download/instalar-linux.sh | bash
+curl -fsSL https://github.com/NUCLEO7LABS/mcp-chatgpt-n7/releases/latest/download/instalar-linux.sh | bash
 ```
 
 Ele instala o Node.js (se o do sistema for antigo), o Codex CLI, o servidor e o modelo de recorte, liga no **Claude Code** e, se houver, no Claude Desktop (as versões não oficiais para Linux, que usam `~/.config/Claude`), faz o login no ChatGPT por código e testa com uma pergunta de verdade. Pode rodar de novo quando quiser: atualiza o que mudou e pula o resto.
