@@ -210,7 +210,7 @@ if (-not $testeOk) { Falha "O teste final falhou (veja a mensagem acima)." }
 # 8. Reiniciar o Claude para ele carregar o servidor
 Passo 8 "Reiniciar o Claude"
 $claude = @(Get-Process -Name claude -ErrorAction SilentlyContinue |
-    Where-Object { $_.Path -match '\\app\\Claude\.exe$|\\AnthropicClaude\\' })
+    Where-Object { $_.Path -match '\\app\\Claude\.exe$|\\AnthropicClaude\\|\\WindowsApps\\[^\\]*Claude_' })
 if ($claude.Count -eq 0) {
     Ok "o Claude esta fechado; ele carrega o servidor quando voce abrir"
 } elseif ($interface) {

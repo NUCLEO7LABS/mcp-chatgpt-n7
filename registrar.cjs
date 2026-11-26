@@ -89,6 +89,20 @@ function subpastas(pasta, prefixo) {
   }
 }
 
+// Pastas do Claude instalado pela Microsoft Store: o nome do pacote mudou de "Claude_<id>" para
+// "AnthropicPBC.Claude_<id>" (e pode mudar de novo), então vale qualquer pacote cujo nome termine em "Claude_<id>".
+function pacotesDoClaude() {
+  const pasta = path.join(localappdata, "Packages");
+  try {
+    return fs
+      .readdirSync(pasta, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && /(^|\.)claude_[a-z0-9]+$/i.test(d.name))
+      .map((d) => path.join(pasta, d.name));
+  } catch {
+    return [];
+  }
+}
+
 // Onde o Claude Desktop pode guardar a configuração, conforme o sistema e o jeito que foi instalado.
 function configsDoDesktop() {
   if (!windows) {
@@ -106,9 +120,8 @@ function configsDoDesktop() {
     // Instalação clássica
     path.join(appdata, "Claude", "claude_desktop_config.json"),
     // Instalação pela Microsoft Store (pasta virtualizada do pacote)
-    ...subpastas(path.join(localappdata, "Packages"), "Claude_").map((p) =>
-      path.join(p, "LocalCache", "Roaming", "Claude", "claude_desktop_config.json"),
-    ),
+    // ("Claude_<id>" nas versões antigas, "AnthropicPBC.Claude_<id>" nas novas)
+    ...pacotesDoClaude().map((p) => path.join(p, "LocalCache", "Roaming", "Claude", "claude_desktop_config.json")),
   ];
   const existentes = candidatos.filter((c) => fs.existsSync(c));
   if (existentes.length) return existentes;

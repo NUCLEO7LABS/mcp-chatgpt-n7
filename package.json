@@ -1,6 +1,6 @@
 {
   "name": "mcp-chatgpt",
-  "version": "1.11.2",
+  "version": "1.11.3",
   "description": "Servidor MCP que deixa o Claude conversar com o ChatGPT usando a sua conta (via Codex CLI)",
   "type": "module",
   "main": "dist/index.js",

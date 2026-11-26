@@ -19,7 +19,7 @@ import { acharMarca, cssDasFontes, lerKit, listarMarcas, PASTA_MARCAS, salvarMar
 import { pastaDeImagens } from "./sistema.js";
 import { agendarAtualizacoes, estadoAtualizacao, tirarAviso, verificarAtualizacao } from "./atualizacao.js";
 
-const VERSAO = "1.11.2";
+const VERSAO = "1.11.3";
 const CODEX_BIN = process.env.CODEX_BIN ?? "codex";
 const TIMEOUT_MS = Number(process.env.CHATGPT_TIMEOUT_MS ?? 5 * 60 * 1000);
 

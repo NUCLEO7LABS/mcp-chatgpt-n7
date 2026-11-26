@@ -162,7 +162,7 @@ function Estado {
 }
 
 function ProcessosDoClaude {
-    @(Get-Process -Name claude -ErrorAction SilentlyContinue | Where-Object { $_.Path -match '\\app\\Claude\.exe$|\\AnthropicClaude\\' })
+    @(Get-Process -Name claude -ErrorAction SilentlyContinue | Where-Object { $_.Path -match '\\app\\Claude\.exe$|\\AnthropicClaude\\|\\WindowsApps\\[^\\]*Claude_' })
 }
 
 function AbrirClaude($exe) {
