@@ -17,9 +17,10 @@ import { MODELO_RECORTE, type OpcoesRecorte, recortarComIA, recorteDisponivel } 
 import { acharNavegador, montarEditavel, renderizarHtml } from "./arte.js";
 import { acharMarca, cssDasFontes, lerKit, listarMarcas, PASTA_MARCAS, salvarMarca } from "./marca.js";
 import { pastaDeImagens } from "./sistema.js";
+import { ampliacaoDisponivel, ampliar, fatorPara, MODELO_AMPLIAR } from "./ampliar.js";
 import { agendarAtualizacoes, estadoAtualizacao, tirarAviso, verificarAtualizacao } from "./atualizacao.js";
 
-const VERSAO = "1.11.3";
+const VERSAO = "1.12.0";
 const CODEX_BIN = process.env.CODEX_BIN ?? "codex";
 const TIMEOUT_MS = Number(process.env.CHATGPT_TIMEOUT_MS ?? 5 * 60 * 1000);
 
@@ -587,6 +588,7 @@ type ImagemFinal = {
   largura?: number;
   altura?: number;
   fundo?: MetodoFundo;
+  ampliadaDe?: string; // tamanho que veio do GPT, se foi ampliada
   avisosRecorte?: string[];
   promptFinal?: string;
   conversaId?: string;
@@ -601,6 +603,7 @@ async function finalizar(
   conversaId: string | undefined,
   querTransparente: boolean,
   opcoesRecorte: OpcoesRecorte = {},
+  querAmpliar = true,
 ): Promise<ImagemFinal> {
   // sharp recebe os bytes, não o caminho: no Windows ele falha com caminhos curtos (8.3) e com acentos.
   let bytes: Buffer = await readFile(g.arquivo);
@@ -613,6 +616,21 @@ async function finalizar(
     fundo = r.metodo;
     avisosRecorte = r.avisos;
     ext = ".png"; // transparência só faz sentido em PNG
+  }
+  // O GPT da assinatura entrega ~1 megapixel: amplia 2× com IA para a arte não sair mole.
+  let ampliadaDe: string | undefined;
+  if (querAmpliar && (await ampliacaoDisponivel())) {
+    const { width = 0, height = 0 } = await sharp(bytes).metadata();
+    if (fatorPara(width, height) >= 1.05) {
+      try {
+        const a = await ampliar(bytes);
+        bytes = a.bytes;
+        ext = a.transparente ? ".png" : ".jpg";
+        ampliadaDe = `${width}×${height}`;
+      } catch {
+        // sem ampliação, a imagem do GPT segue como veio
+      }
+    }
   }
   const caminho = await nomeLivre(destino, base, ext);
   await writeFile(caminho, bytes);
@@ -628,11 +646,12 @@ async function finalizar(
     largura: info.width,
     altura: info.height,
     fundo_transparente_por: fundo,
+    ampliada_de: ampliadaDe,
     original_codex: g.arquivo,
     criada_em: new Date().toISOString(),
   };
   await writeFile(caminho.slice(0, -ext.length) + ".json", JSON.stringify(ficha, null, 2), "utf8");
-  return { caminho, largura: info.width, altura: info.height, fundo, avisosRecorte, promptFinal: g.promptFinal, conversaId, previa };
+  return { caminho, largura: info.width, altura: info.height, fundo, ampliadaDe, avisosRecorte, promptFinal: g.promptFinal, conversaId, previa };
 }
 
 // Prévia leve para o Claude: JPEG, ou WEBP quando há transparência.
@@ -846,7 +865,7 @@ Para posts, stories, banners, anúncios, capas, thumbnails e qualquer peça com 
 1. Marca: se a peça é de uma marca, chame kit_de_marca primeiro (logo real, cores, fontes, tom, referências). Se a marca não tem kit, crie com salvar_marca a partir do que o usuário disse e mostrou, e peça para ele salvar o logo, as fontes e as referências nas pastas indicadas (imagens coladas no chat comum não chegam como arquivo; na aba Code chegam com caminho e podem ser usadas direto).
 2. Decida o que precisa do GPT (gerar_imagem): fotos, cenas, comida, pessoas, produtos em ambiente, objetos e ícones 3D, texturas, ilustrações. Peça essas imagens SEM texto e SEM logo, no formato da peça, deixando espaço livre onde o texto vai entrar. Elementos que vão ser posicionados sobre o layout (produto, objeto, personagem, ícone 3D) peça com fundo_transparente: true. Se já existe uma referência do estilo, passe-a em imagens_referencia com modo_referencia "parecida".
 3. Recorte: foto ou imagem do usuário que precisa ficar sobre outro fundo → remover_fundo. Logo com fundo → remover_fundo antes de usar. A prévia de todo recorte mostra o objeto sobre fundo escuro e claro: confira se sobrou fundo, halo ou buraco. Se o recorte avisar que a borda tem cor parecida com a do fundo ou que o objeto encosta na borda, gere a imagem de novo (de preferência pedindo um fundo de cor bem diferente do objeto) em vez de usar um recorte ruim. Para produto ou objeto que deve parecer apoiado no chão, use manter_sombra.
-4. Monte a peça no Claude Design: crie uma tela (artefato do tipo Design) com o nome da peça ou da campanha, ou use a tela que já existe para ela, e siga as instruções do próprio tipo Design. Envie para a tela, como arquivos dela, as imagens do GPT, o logo REAL da marca e as fontes da marca (os caminhos vêm de gerar_imagem, remover_fundo e kit_de_marca). Faça uma prancheta por formato, no tamanho exato (post do Instagram 1080×1350, story 1080×1920, quadrado 1080×1080, paisagem 1920×1080), com o texto exato como texto de verdade, a hierarquia e as fontes da marca, as cores da marca e a composição das referências (posição do logo, estilo do título, botões, selos). No story, deixe livres os ~250 px de cima e de baixo, que o Instagram cobre. Nunca peça ao GPT para escrever o texto final nem para desenhar o logo quando existe o arquivo do logo.
+4. Monte a peça no Claude Design: crie uma tela (artefato do tipo Design) com o nome da peça ou da campanha, ou use a tela que já existe para ela, e siga as instruções do próprio tipo Design. Envie para a tela, como arquivos dela, as imagens do GPT, o logo REAL da marca e as fontes da marca (os caminhos vêm de gerar_imagem, remover_fundo e kit_de_marca). Use sempre o ARQUIVO do caminho devolvido (as imagens do gerar_imagem já vêm ampliadas 2× com IA), nunca a prévia que aparece na conversa, que é reduzida e comprimida; se uma imagem do usuário ou um logo for pequeno para a prancheta, amplie antes com ampliar_imagem. Faça uma prancheta por formato, no tamanho exato (post do Instagram 1080×1350, story 1080×1920, quadrado 1080×1080, paisagem 1920×1080), com o texto exato como texto de verdade, a hierarquia e as fontes da marca, as cores da marca e a composição das referências (posição do logo, estilo do título, botões, selos). No story, deixe livres os ~250 px de cima e de baixo, que o Instagram cobre. Nunca peça ao GPT para escrever o texto final nem para desenhar o logo quando existe o arquivo do logo.
 5. Entregue o link da tela e diga ao usuário que ele pode clicar nos textos para editar e exportar as artes pela própria tela. Só gere outra imagem no GPT se o problema estiver na própria imagem.
 
 Use renderizar_arte (HTML → PNG no computador) em vez do Claude Design quando: o tipo de artefato Design não estiver disponível nesta conversa; não der para enviar as imagens para a tela (por exemplo, a pasta não está liberada no chat comum); ou o usuário pedir os PNGs salvos no computador, um lote rápido de várias artes, ou a arte sem passar pelo Design. Diga ao usuário em uma frase por que usou esse caminho. Nele: um único HTML no tamanho exato, logo real como <img src="caminho">, olhe a prévia com olho crítico e corrija o HTML (é rápido e não gasta o ChatGPT); para vários formatos, um HTML que se adapta e formatos numa só chamada, ajustando cada um com [data-formato="..."]. No fim, chame entregar_artes com as versões FINAIS e diga onde estão os arquivos e o editável (…-editavel.html). Se refez uma arte, sobrescreva com o mesmo nome_arquivo em vez de criar "-2", "-3". Se o usuário quiser, depois de aprovar no Design, também os PNGs no computador, monte com renderizar_arte a partir do mesmo layout.
@@ -984,6 +1003,13 @@ server.registerTool(
         .boolean()
         .optional()
         .describe("Com fundo_transparente: mantém a sombra do objeto no chão como sombra preta semitransparente (padrão: tira)"),
+      ampliar: z
+        .boolean()
+        .optional()
+        .describe(
+          "Amplia 2× com IA aqui no computador depois de gerar (padrão: sim; o GPT entrega ~1 megapixel, pouco para " +
+            "story e para exportar em 2×). Leva de 20 a 60 s. Use false só para rascunhos rápidos.",
+        ),
       variacoes: z
         .number()
         .int()
@@ -1089,9 +1115,16 @@ server.registerTool(
           } else if (g.arquivo) {
             const nome = total > 1 ? `${base}-v${i + 1}` : base;
             imagens.push(
-              await finalizar(g, destino, nome, meta, conversaId, Boolean(args.fundo_transparente), {
-                manterSombra: args.manter_sombra,
-              }),
+              await finalizar(
+                g,
+                destino,
+                nome,
+                meta,
+                conversaId,
+                Boolean(args.fundo_transparente),
+                { manterSombra: args.manter_sombra },
+                args.ampliar ?? true,
+              ),
             );
           }
         }
@@ -1116,7 +1149,11 @@ server.registerTool(
       for (const [i, img] of imagens.entries()) {
         if (imagens.length > 1) linhas.push(`### Imagem ${i + 1}`);
         linhas.push(`Arquivo: ${img.caminho}`);
-        linhas.push(`Tamanho: ${img.largura}×${img.altura}px` + (img.fundo ? ` · ${descreverFundo(img.fundo)}` : ""));
+        linhas.push(
+          `Tamanho: ${img.largura}×${img.altura}px` +
+            (img.ampliadaDe ? ` (o GPT entregou ${img.ampliadaDe}; ampliada 2× com IA aqui no computador)` : "") +
+            (img.fundo ? ` · ${descreverFundo(img.fundo)}` : ""),
+        );
         if (img.fundo && img.fundo !== "falhou") linhas.push("A prévia mostra o recorte sobre fundo escuro e claro, para conferir as bordas.");
         for (const aviso of img.avisosRecorte ?? []) linhas.push(`Recorte: ${aviso}`);
         if (img.promptFinal) linhas.push(`Prompt final usado: ${img.promptFinal}`);
@@ -1129,6 +1166,55 @@ server.registerTool(
         content: [
           ...imagens.map((img) => ({ type: "image" as const, data: img.previa.dados, mimeType: img.previa.mime })),
           { type: "text" as const, text: linhas.join("\n").trim() },
+        ],
+      };
+    } catch (e) {
+      return { isError: true, content: [{ type: "text", text: (e as Error).message }] };
+    }
+  }),
+);
+
+server.registerTool(
+  "ampliar_imagem",
+  {
+    title: "Ampliar imagem com IA",
+    description:
+      "Amplia uma imagem que já existe (2×, 3× ou 4×) com IA, aqui no computador, deixando-a nítida em vez de " +
+      "esticada. Use quando uma imagem for pequena para a peça: foto do cliente, logo em baixa, imagem antiga do GPT " +
+      "gerada sem ampliar, ou quando o usuário disser que a imagem ficou 'pixelada', 'borrada', 'em baixa'. " +
+      "As imagens novas do gerar_imagem já saem ampliadas. Não gasta o limite do ChatGPT. Leva de 10 s a 1 min.",
+    inputSchema: {
+      imagem: z.string().min(1).describe("Caminho da imagem no computador"),
+      fator: z.number().min(1.2).max(4).optional().describe(`Quanto ampliar (padrão 2; o lado maior fica em até 4096 px)`),
+      pasta_destino: z.string().optional().describe("Pasta onde salvar (padrão: a mesma da imagem)"),
+    },
+  },
+  limitar("ampliar_imagem", async ({ imagem, fator, pasta_destino }, extra) => {
+    try {
+      if (!(await ampliacaoDisponivel())) {
+        throw new Error(`O modelo de ampliação não está disponível (${MODELO_AMPLIAR}). Verifique a internet ou rode o instalador do ClauGPT de novo.`);
+      }
+      const [caminho] = await validarImagens([imagem]);
+      const original = await readFile(caminho);
+      const { width = 0, height = 0 } = await sharp(original).metadata();
+      if (fatorPara(width, height, fator ?? 2) < 1.05) {
+        return { content: [{ type: "text", text: `A imagem já tem ${width}×${height}px: não precisa ampliar.` }] };
+      }
+      const r = await comProgresso(extra, "Ampliando com IA", ampliar(original, fator ?? 2));
+      const destino = resolve(pasta_destino ?? join(caminho, ".."));
+      await mkdir(destino, { recursive: true });
+      const saida = await nomeLivre(destino, `${slug(basenameSemExt(caminho))}-ampliada`, r.transparente ? ".png" : ".jpg");
+      await writeFile(saida, r.bytes);
+      const previa = await gerarPrevia(r.bytes, r.transparente);
+      return {
+        content: [
+          { type: "image", data: previa.dados, mimeType: previa.mime },
+          {
+            type: "text",
+            text:
+              `Arquivo: ${saida}\nTamanho: ${r.largura}×${r.altura}px (era ${width}×${height}) · ampliada com IA aqui no ` +
+              `computador (${r.segundos.toFixed(0)} s)`,
+          },
         ],
       };
     } catch (e) {
@@ -1610,6 +1696,8 @@ server.registerTool(
     }
     const recorte = await recorteDisponivel();
     item(recorte, recorte ? `Modelo de recorte: ${MODELO_RECORTE}` : `Modelo de recorte ausente (${MODELO_RECORTE}): o recorte funciona, mas com qualidade inferior. Rode o instalador de novo para baixar.`);
+    const amplia = await ampliacaoDisponivel();
+    item(amplia, amplia ? `Modelo de ampliação: ${MODELO_AMPLIAR}` : `Modelo de ampliação ausente (${MODELO_AMPLIAR}): as imagens do GPT saem sem ampliar. Verifique a internet ou rode o instalador de novo.`);
     try {
       item(true, `Navegador para montar artes: ${acharNavegador()}`);
     } catch (e) {

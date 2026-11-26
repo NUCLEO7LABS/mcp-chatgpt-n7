@@ -67,6 +67,7 @@ jobs:
             saida/Instalar-ClauGPT-MCP.cmd \
             saida/clauGPT-mcp.json \
             saida/instalar-linux.sh \
+            modelos/ampliar-x4.onnx \
             saida/clauGPT-mcp-*.tar.gz \
             saida/clauGPT-mcp-*.tar.gz.sha256 \
             --target "$GITHUB_SHA" --title "ClauGPT MCP ${etiqueta#v}" "${opcao[@]}"

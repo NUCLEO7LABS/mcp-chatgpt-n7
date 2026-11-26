@@ -267,6 +267,14 @@ Sem o modelo, o servidor continua funcionando com o recorte simples de fundo lis
 
 **Limite conhecido:** em fotos com cenário e folhagem fina (palmeiras, árvores), podem sobrar pedacinhos de fundo entre os detalhes. Para o que o GPT gera sobre fundo liso (ícones, produtos, personagens, objetos), o recorte fica limpo.
 
+## Ampliação com IA
+
+`src/ampliar.ts`. A geração de imagens pela assinatura (a ferramenta `image_gen` do Codex) não aceita tamanho nem qualidade e entrega cerca de 1 megapixel (1024×1024, 1024×1536 ou 1536×1024). Esticada para um story 1080×1920, ou exportada em 2×, a imagem fica mole. Por isso toda imagem do `gerar_imagem` é ampliada 2× no computador (`ampliar: false` desliga), e a ferramenta `ampliar_imagem` amplia qualquer outra (2× a 4×, lado maior até 4096 px).
+
+- **Modelo:** Real-ESRGAN *general x4 v3* (SRVGGNetCompact, licença BSD-3) misturado meio a meio com a variante *wdn x4 v3*, que preserva mais textura (é o ajuste de "força de redução de ruído" do próprio Real-ESRGAN). Exportado para ONNX: `modelos/ampliar-x4.onnx`, 4,9 MB, vai junto com o servidor e em cada versão publicada; se faltar (PCs que vieram de versão anterior pela atualização automática), o servidor baixa da versão mais nova do GitHub e confere a impressão digital.
+- **Como roda:** amplia 4× em pedaços de 192 px com 12 px de margem (sem emendas, pouca memória) e reduz com lanczos para o fator pedido. A transparência é ampliada à parte, sem IA. Sem transparência, salva JPEG qualidade 95 (4:4:4); com, PNG.
+- **Custo:** 1024×1536 → 2048×3072 em ~32 s e ~600 MB num processador de 4 núcleos; uma ampliação por vez; o modelo sai da memória depois de 1 minuto parado.
+
 ## Atualização automática
 
 `src/atualizacao.ts`. O servidor lê `https://github.com/NUCLEO7LABS/mcp-chatgpt-n7/releases/latest/download/clauGPT-mcp.json` 20 segundos depois de abrir e a cada 12 horas. Esse arquivo (gerado pelo `empacotar.mjs`) traz a versão, o nome do pacote e a impressão digital SHA-256.
@@ -288,6 +296,7 @@ Sem o modelo, o servidor continua funcionando com o recorte simples de fundo lis
 | `CHATGPT_NAVEGADOR` | Caminho do Chrome/Edge/Chromium usado para montar as artes |
 | `CHATGPT_ATUALIZACAO` | `0` desliga a atualização automática |
 | `CHATGPT_ATUALIZACAO_REPO` | Repositório de onde vêm as versões (padrão: `NUCLEO7LABS/mcp-chatgpt-n7`) |
+| `CHATGPT_MODELO_AMPLIAR` | Caminho do modelo de ampliação .onnx (padrão: `modelos\\ampliar-x4.onnx` na pasta do servidor) |
 | `CHATGPT_MODELO_RECORTE` | Caminho do modelo de recorte .onnx (padrão: `%USERPROFILE%\.mcp-chatgpt\modelos\isnet-general-use.onnx`) |
 
 ## Testar sem o Claude

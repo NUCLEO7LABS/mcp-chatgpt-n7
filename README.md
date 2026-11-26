@@ -19,6 +19,7 @@ Imagens e ícones 3D do GPT, recorte de fundo de verdade, artes montadas com a m
 | | |
 |---|---|
 | **Gera com o GPT** | Fotos, cenas, produtos, mascotes, ícones e objetos 3D, ilustrações. Também recria uma arte a partir de uma referência ou edita uma imagem. |
+| **Amplia com IA** | O GPT da assinatura entrega ~1 megapixel; cada imagem sai ampliada 2× no próprio computador, nítida no story e na exportação em 2×. |
 | **Recorta o fundo** | No próprio computador, em uns 3 segundos, com ~1 GB de memória. Cabelo e pelo fio a fio, vidro, sombra no chão (tira ou mantém), sem halo. |
 | **Monta a peça** | Post, story e anúncio no Claude Design: a imagem do GPT, o logo real e os textos de verdade, numa tela editável, uma prancheta por formato. |
 | **Lembra da marca** | Kit por marca com logo, cores, fontes, tom de voz e artes de referência, que o Claude usa sozinho. |
@@ -109,7 +110,8 @@ O servidor confere o GitHub pouco depois de abrir e a cada 12 horas, pelo link f
 
 | Ferramenta | Para quê |
 |---|---|
-| `gerar_imagem` | O GPT gera ou edita imagens, com ou sem fundo, a partir de texto ou de referências |
+| `gerar_imagem` | O GPT gera ou edita imagens, com ou sem fundo, a partir de texto ou de referências, já ampliadas 2× com IA |
+| `ampliar_imagem` | Amplia qualquer imagem 2× a 4× com IA no computador (foto do cliente, logo pequeno) |
 | `remover_fundo` | Recorte com IA no computador, com opção de manter a sombra no chão |
 | `renderizar_arte` | Monta uma peça em HTML no tamanho exato e salva o PNG (alternativa ao Claude Design) |
 | `kit_de_marca` / `salvar_marca` | Logo, cores, fontes, tom e referências de cada marca |

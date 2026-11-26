@@ -17,8 +17,8 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const REPO = process.env.CHATGPT_ATUALIZACAO_REPO ?? "NUCLEO7LABS/mcp-chatgpt-n7";
-const GITHUB = process.env.CHATGPT_ATUALIZACAO_BASE ?? "https://github.com"; // trocado só nos testes
+export const REPO = process.env.CHATGPT_ATUALIZACAO_REPO ?? "NUCLEO7LABS/mcp-chatgpt-n7";
+export const GITHUB = process.env.CHATGPT_ATUALIZACAO_BASE ?? "https://github.com"; // trocado só nos testes
 export const ATUALIZACAO_LIGADA = process.env.CHATGPT_ATUALIZACAO !== "0";
 const INTERVALO_MS = 12 * 60 * 60 * 1000;
 
@@ -26,7 +26,7 @@ const INTERVALO_MS = 12 * 60 * 60 * 1000;
 export const PROJETO = dirname(dirname(fileURLToPath(import.meta.url)));
 const PASTA = join(PROJETO, "atualizacao");
 // O que a atualização substitui. node_modules, o registro e esta pasta ficam.
-const ITENS = ["dist", "src", "interface", "servidor.mjs", "package.json", "package-lock.json", "tsconfig.json", "iniciar.ps1", "instalar.ps1", "registrar.cjs", "testar.mjs", "instalar-linux.sh", "README.md"];
+const ITENS = ["dist", "src", "interface", "modelos", "servidor.mjs", "package.json", "package-lock.json", "tsconfig.json", "iniciar.ps1", "instalar.ps1", "registrar.cjs", "testar.mjs", "instalar-linux.sh", "README.md"];
 
 export type EstadoAtualizacao = {
   verificadoEm?: string;
