@@ -273,6 +273,8 @@ Sem o modelo, o servidor continua funcionando com o recorte simples de fundo lis
 
 - Versão nova com o mesmo `package-lock.json` (fora a versão do projeto): baixa `clauGPT-mcp-<versão>.tar.gz`, confere a impressão digital, extrai com o `tar` (no Windows, o que vem com ele), guarda a versão atual em `atualizacao\anterior-<versão>` e copia a nova por cima (sem tocar em `node_modules`). Vale a partir do próximo início do servidor; o Claude recebe um aviso na resposta seguinte de uma ferramenta.
 - Versão nova com bibliotecas diferentes: não troca nada (no Windows os arquivos nativos ficam presos com o servidor aberto) e avisa com o link do `Instalar-ClauGPT-MCP.exe` da versão (no Linux, com o comando do `instalar-linux.sh`).
+- Só uma cópia do servidor atualiza por vez (`atualizacao/trava`; o Claude abre uma para a aba Code e outra para o chat). Cada item é copiado ao lado e só então trocado pelo nome, e o `dist/` é conferido no fim; se algo falhar no meio, tudo volta para a versão que estava rodando.
+- O Claude abre `servidor.mjs`, a porta de entrada: se o `dist/` não carregar (arquivo faltando, código truncado), ela copia de volta a versão guardada em `atualizacao/anterior-<versão>` e abre essa, para o ClauGPT não sumir do Claude.
 - Para voltar atrás à mão: copie o conteúdo de `atualizacao\anterior-<versão>` por cima da pasta do servidor.
 
 ## Variáveis opcionais

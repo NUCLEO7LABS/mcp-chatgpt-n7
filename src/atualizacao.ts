@@ -12,7 +12,7 @@
 
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, open, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,7 +26,7 @@ const INTERVALO_MS = 12 * 60 * 60 * 1000;
 export const PROJETO = dirname(dirname(fileURLToPath(import.meta.url)));
 const PASTA = join(PROJETO, "atualizacao");
 // O que a atualização substitui. node_modules, o registro e esta pasta ficam.
-const ITENS = ["dist", "src", "interface", "package.json", "package-lock.json", "tsconfig.json", "iniciar.ps1", "instalar.ps1", "registrar.cjs", "testar.mjs", "instalar-linux.sh", "README.md"];
+const ITENS = ["dist", "src", "interface", "servidor.mjs", "package.json", "package-lock.json", "tsconfig.json", "iniciar.ps1", "instalar.ps1", "registrar.cjs", "testar.mjs", "instalar-linux.sh", "README.md"];
 
 export type EstadoAtualizacao = {
   verificadoEm?: string;
@@ -96,6 +96,13 @@ async function procurar(versaoAtual: string): Promise<EstadoAtualizacao> {
   const m = (await r.json()) as Manifesto;
   const ultima = m.versao;
   if (comparar(ultima, versaoAtual) <= 0) return { verificadoEm: agora, ultima, situacao: "em dia" };
+  // Outra cópia do servidor (outra janela do Claude) já instalou esta versão: falta só reiniciar o Claude.
+  const noDisco = await readFile(join(PROJETO, "package.json"), "utf8")
+    .then((t) => String(JSON.parse(t).version ?? "0"))
+    .catch(() => "0");
+  if (comparar(ultima, noDisco) <= 0) {
+    return { verificadoEm: agora, ultima, situacao: "instalada", detalhe: `a versão ${ultima} já está instalada; vale depois de reiniciar o Claude` };
+  }
 
   const arquivoDaVersao = (nome: string) => `${GITHUB}/${REPO}/releases/download/v${ultima}/${encodeURIComponent(nome)}`;
   // No Linux, o "instalador" é o comando do terminal que roda o instalar-linux.sh de novo.
@@ -113,10 +120,89 @@ async function procurar(versaoAtual: string): Promise<EstadoAtualizacao> {
   if (obtido !== m.sha256.toLowerCase()) throw new Error("o pacote baixado não confere com a impressão digital publicada (download corrompido?)");
 
   await mkdir(PASTA, { recursive: true });
-  const novo = join(PASTA, `nova-${ultima}`);
+  // O Claude abre mais de uma cópia do servidor (aba Code, chat): só uma atualiza; as outras esperam a próxima vez.
+  const liberar = await travar();
+  if (!liberar) return { verificadoEm: agora, ultima, situacao: "em dia", detalhe: "outra janela do Claude já está atualizando" };
+  try {
+    return await instalar(pacote, m, ultima, versaoAtual, agora, instalador);
+  } finally {
+    await liberar();
+  }
+}
+
+const TRAVA_VELHA_MS = 10 * 60 * 1000;
+
+// Cria atualizacao/trava de forma exclusiva. Devolve como soltar, ou undefined se outra cópia está atualizando.
+async function travar(): Promise<(() => Promise<void>) | undefined> {
+  const trava = join(PASTA, "trava");
+  for (let tentativa = 0; tentativa < 2; tentativa++) {
+    try {
+      const f = await open(trava, "wx");
+      await f.writeFile(String(process.pid));
+      await f.close();
+      return () => rm(trava, { force: true });
+    } catch {
+      // Trava esquecida por um servidor que fechou no meio: passa por cima.
+      const s = await stat(trava).catch(() => undefined);
+      if (s && Date.now() - s.mtimeMs < TRAVA_VELHA_MS) return undefined;
+      await rm(trava, { force: true });
+    }
+  }
+  return undefined;
+}
+
+// Troca um item do projeto pelo novo: copia ao lado e só então troca os nomes, para nunca ficar sem ele.
+async function trocar(origem: string, destino: string) {
+  const temporario = `${destino}.nova-${process.pid}`;
+  const velho = `${destino}.velha-${process.pid}`;
+  await rm(temporario, { recursive: true, force: true });
+  await cp(origem, temporario, { recursive: true, force: true });
+  const tinha = existsSync(destino);
+  if (tinha) await renomear(destino, velho);
+  try {
+    await renomear(temporario, destino);
+  } catch (e) {
+    if (tinha) await renomear(velho, destino).catch(() => undefined);
+    await rm(temporario, { recursive: true, force: true });
+    throw e;
+  }
+  if (tinha) await rm(velho, { recursive: true, force: true }).catch(() => undefined);
+}
+
+// No Windows, um antivírus lendo o arquivo novo faz o rename falhar por um instante: tenta de novo.
+async function renomear(de: string, para: string) {
+  for (let i = 0; ; i++) {
+    try {
+      return await rename(de, para);
+    } catch (e) {
+      if (i >= 8) throw e;
+      await new Promise((r) => setTimeout(r, 250 * (i + 1)));
+    }
+  }
+}
+
+// Todos os arquivos de dist/ do pacote estão no projeto, do mesmo tamanho?
+async function distCompleto(novo: string): Promise<boolean> {
+  for (const nome of await readdir(join(novo, "dist"))) {
+    const a = await stat(join(novo, "dist", nome)).catch(() => undefined);
+    const b = await stat(join(PROJETO, "dist", nome)).catch(() => undefined);
+    if (!a || !b || (a.isFile() && a.size !== b.size)) return false;
+  }
+  return true;
+}
+
+async function instalar(
+  pacote: Buffer,
+  m: Manifesto,
+  ultima: string,
+  versaoAtual: string,
+  agora: string,
+  instalador: string,
+): Promise<EstadoAtualizacao> {
+  const novo = join(PASTA, `nova-${ultima}-${process.pid}`);
   await rm(novo, { recursive: true, force: true });
   await mkdir(novo, { recursive: true });
-  const arquivo = join(PASTA, `clauGPT-mcp-${ultima}.tar.gz`);
+  const arquivo = join(PASTA, `clauGPT-mcp-${ultima}-${process.pid}.tar.gz`);
   await writeFile(arquivo, pacote);
   await extrair(arquivo, novo);
   if (!existsSync(join(novo, "dist", "index.js"))) throw new Error("o pacote não traz o servidor compilado");
@@ -138,10 +224,19 @@ async function procurar(versaoAtual: string): Promise<EstadoAtualizacao> {
   for (const item of ITENS) {
     if (existsSync(join(PROJETO, item))) await cp(join(PROJETO, item), join(anterior, item), { recursive: true });
   }
-  for (const item of ITENS) {
-    if (!existsSync(join(novo, item))) continue;
-    if (item === "dist" || item === "src" || item === "interface") await rm(join(PROJETO, item), { recursive: true, force: true });
-    await cp(join(novo, item), join(PROJETO, item), { recursive: true, force: true });
+  try {
+    for (const item of ITENS) {
+      if (existsSync(join(novo, item))) await trocar(join(novo, item), join(PROJETO, item));
+    }
+    if (!(await distCompleto(novo))) throw new Error("a cópia do servidor novo não ficou completa");
+  } catch (e) {
+    // Deu errado no meio: volta tudo para a versão que estava rodando.
+    for (const item of ITENS) {
+      if (existsSync(join(anterior, item))) await trocar(join(anterior, item), join(PROJETO, item)).catch(() => undefined);
+    }
+    await rm(novo, { recursive: true, force: true });
+    await rm(arquivo, { force: true });
+    throw new Error(`a atualização não terminou e a versão ${versaoAtual} foi mantida (${(e as Error).message})`);
   }
   await rm(novo, { recursive: true, force: true });
   await rm(arquivo, { force: true });

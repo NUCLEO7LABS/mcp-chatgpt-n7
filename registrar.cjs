@@ -9,6 +9,8 @@ const path = require("path");
 const os = require("os");
 
 const servidor = path.join(__dirname, "dist", "index.js");
+// O Claude abre a porta de entrada (servidor.mjs), que volta para a versão anterior se o dist/ quebrar.
+const entrada = fs.existsSync(path.join(__dirname, "servidor.mjs")) ? path.join(__dirname, "servidor.mjs") : servidor;
 const appdata = process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming");
 const localappdata = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
 const windows = process.platform === "win32";
@@ -34,7 +36,7 @@ if (!remover && !fs.existsSync(servidor)) {
 const entradaPara = (esperaMs) => ({
   // Caminho completo do Node: o Claude pode ter sido aberto antes do Node ser instalado.
   command: process.execPath,
-  args: [servidor],
+  args: [entrada],
   env: { CODEX_BIN: codex, CHATGPT_TIMEOUT_MS: "600000", CHATGPT_ESPERA_MAX_MS: String(esperaMs) },
 });
 
